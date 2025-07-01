@@ -285,10 +285,10 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
 
             grouping_instance = grouping(action_size=args.action_size)
             # CHIEF model replace the basemodel    
-            # whole_chief = update_chief_data.detach().squeeze(0)                                   
-            # memory.merge_msg_states.append(cheif_wsi_embedding(chief_model, whole_chief)) 
-            whole_gigapath = update_gigapath_data.detach()
-            memory.merge_msg_states.append(gigapath_wsi_embedding(gigapath_model, whole_gigapath, update_coords).to(device))  
+            whole_chief = update_chief_data.detach().squeeze(0)                                   
+            memory.merge_msg_states.append(cheif_wsi_embedding(chief_model, whole_chief)) 
+            # whole_gigapath = update_gigapath_data.detach()
+            # memory.merge_msg_states.append(gigapath_wsi_embedding(gigapath_model, whole_gigapath, update_coords).to(device))  
 
             _ = ppo.select_action(
                 None, memory, restart_batch=True, training=True
