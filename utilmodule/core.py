@@ -21,7 +21,7 @@ from CHIEF_network import ClfNet
 from gigapath.pipeline import run_inference_with_slide_encoder
 
 
-def test(args,basedmodel,ppo,classifier_chief,FusionHisF,memory,test_loader, chief_model, run_type="test", epoch=0):
+def test(args,ppo,classifier_chief, classifier_giga,memory,test_loader, chief_model, gigapath_model, run_type="test", epoch=0):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -259,10 +259,9 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
     best_auc = 0
     
     for idx, epoch in enumerate(range(args.num_epochs)):
-        
         classifier_chief.train()
         classifier_giga.train()
-        
+
         chief_loss = 0
         giga_loss = 0
         correct = 0
@@ -275,9 +274,16 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
             optimizer_giga.zero_grad()
             coords = coords.squeeze(dim=3)
             update_coords, update_chief_data, update_gigapath_data, label = coords.to(device), chief_data.to(device), gigapath_data.to(device), label.to(device).long()
+            # 預處理
+            if args.type == 'camelyon16':
+                update_data = basedmodel.fc1(update_data)
+            else:
+                chief_data = chief_data.float()
+                gigapath_data = gigapath_data.float()
 
-            chief_data = chief_data.float()
-            gigapath_data = gigapath_data.float()
+            #if args.ape:
+            #    chief_data += basedmodel.absolute_pos_embed.expand(1, chief_data.shape[1], basedmodel.args.embed_dim)
+            #    gigapath_data += basedmodel.absolute_pos_embed.expand(1, gigapath_data.shape[1], basedmodel.args.embed_dim)
 
             grouping_instance = grouping(action_size=args.action_size)
             # CHIEF model replace the basemodel    
@@ -319,8 +325,8 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
             # record loss
             chief_loss += loss.item()
             
-            pred = torch.argmax(output, dim=1)
-            probs = F.softmax(output, dim=1)
+            pred_chief = torch.argmax(output, dim=1)
+            probs_chief = F.softmax(output, dim=1)
             
             # gigapath
             optimizer_giga.zero_grad()
@@ -335,7 +341,7 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
             pred_giga = torch.argmax(output_giga, dim=1)
             probs_giga = F.softmax(output_giga, dim=1)
 
-            values = torch.stack([probs[0][label.item()].detach(), probs_giga[0][label.item()].detach()])
+            values = torch.stack([probs_chief[0][label.item()].detach(), probs_giga[0][label.item()].detach()])
             memory.rewards.append((values.mean() - values.var(unbiased=False)).unsqueeze(0))
             record_reward = memory.rewards[-1]
             if (ide+1) % 64 == 0 or ide == len(train_loader)-1:
@@ -346,17 +352,17 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
 
             wandb.log({
                 "reward": record_reward,
-                "probability/chief_true_label": probs[0][label.item()].detach(), 
-                "probability/chief_false_label": probs[0][1 - label.item()].detach(), 
+                "probability/chief_true_label": probs_chief[0][label.item()].detach(), 
+                "probability/chief_false_label": probs_chief[0][1 - label.item()].detach(), 
                 "probability/gigapath_true_label": probs_giga[0][label.item()].detach(), 
                 "probability/gigapath_false_label": probs_giga[0][1 - label.item()].detach(),
             })
 
             # 計算正確率 chief
-            correct += (pred == label).sum().item()
+            correct += (pred_chief == label).sum().item()
             total += label.size(0)
             label_list.append(label)
-            Y_prob_list.append(probs)
+            Y_prob_list.append(probs_chief)
 
             # gigapath
             giga_correct += (pred_giga == label).sum().item()
@@ -392,10 +398,10 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
             "train/acc": accuracy
         })
 
+        # gigapath record
         targets = np.asarray(torch.cat(giga_label_list, dim=0).detach().cpu().numpy()).reshape(-1)
         probs = np.asarray(torch.cat(giga_Y_prob_list, dim=0).detach().cpu().numpy())
         precision, recall, f1, auc, accuracy = calculate_metrics(targets, probs)
-
         wandb.log({
             "epoch": epoch,
             "train_giga/precision": precision,
@@ -405,9 +411,8 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
             "train_giga/acc": accuracy
         })
 
-        #acc = correct / total
-        #print(f"[Epoch {epoch+1}/{args.num_epochs}] Loss: {epoch_loss:.4f}, Accuracy: {acc:.4f}")
-        precision, recall, f1, val_auc, val_accuracy = test(args,basedmodel,ppo,classifier_chief,FusionHisF,memory,validation_loader, chief_model, "val", epoch)
+        # val
+        precision, recall, f1, val_auc, val_accuracy = test(args,ppo,classifier_chief, classifier_giga,memory,test_loader, chief_model, gigapath_model, run_type="val", epoch=epoch)
         wandb.log({
             "val/precision": precision,
             "val/recall": recall,
@@ -415,7 +420,9 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
             "val/auc": val_auc,
             "val/acc": val_accuracy
         })
-        precision, recall, f1, auc, accuracy = test(args,basedmodel,ppo,classifier_chief,FusionHisF,memory,test_loader, chief_model, "test", epoch)
+
+        # test
+        precision, recall, f1, auc, accuracy = test(args,ppo,classifier_chief, classifier_giga,memory,test_loader, chief_model, gigapath_model, run_type="test", epoch=epoch)
         wandb.log({
             "test/precision": precision,
             "test/recall": recall,
@@ -423,6 +430,7 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
             "test/auc": auc,
             "test/acc": accuracy
         })
+        
         if val_auc >= best_auc:
             best_auc = val_auc
             # save model
@@ -437,7 +445,7 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
             break
 
         none_epoch += 1
-
+        
 def train_baseline(args,basedmodel,ppo,classifymodel,FusionHisF,memory_space,train_loader, validation_loader, test_loader=None):
     run_name = f"run_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
     wandb.login(key="")
