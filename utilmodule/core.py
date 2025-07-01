@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch
 import copy
-from utilmodule.utils import calculate_error,calculate_metrics,f1_score,split_array,save_checkpoint,cosine_scheduler, simsiam_sia_loss, compute_pamil_reward, pred_label_process
+from utilmodule.utils import calculate_metrics
 
 import numpy as np
 from sklearn.cluster import KMeans
@@ -11,7 +11,6 @@ import time
 import random
 from tqdm import tqdm
 import torch.nn.functional as F
-from utilmodule.environment import expand_data
 import torch.optim as optim
 import wandb
 import datetime
