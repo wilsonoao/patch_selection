@@ -263,7 +263,6 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
         classifier_chief.train()
         classifier_giga.train()
         
-
         chief_loss = 0
         giga_loss = 0
         correct = 0
@@ -354,10 +353,10 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
             })
 
             # 計算正確率 chief
-            correct += (pred_giga == label).sum().item()
+            correct += (pred == label).sum().item()
             total += label.size(0)
             label_list.append(label)
-            Y_prob_list.append(probs_giga)
+            Y_prob_list.append(probs)
 
             # gigapath
             giga_correct += (pred_giga == label).sum().item()
