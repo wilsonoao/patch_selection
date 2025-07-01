@@ -241,10 +241,6 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
     save_dir = os.path.join(args.save_dir, run_name)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    label_list = []
-    Y_prob_list = []
-    giga_label_list = []
-    giga_Y_prob_list = []
 
     optimizer_chief = torch.optim.Adam(list(classifier_chief.parameters()),lr=1e-4, weight_decay=1e-5)
     optimizer_giga = torch.optim.Adam(list(classifier_giga.parameters()),lr=1e-4, weight_decay=1e-5)
@@ -259,6 +255,8 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
     best_auc = 0
     
     for idx, epoch in enumerate(range(args.num_epochs)):
+        classifier_chief.train()
+        classifier_giga.train()
         classifier_chief.train()
         classifier_giga.train()
 
