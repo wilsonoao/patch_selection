@@ -3,7 +3,7 @@ import sys
 from gigapath import slide_encoder
 from gigapath.pipeline import run_inference_with_slide_encoder
 from huggingface_hub import login
-login("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")
+login("")
  
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
