@@ -526,7 +526,7 @@ def train(args, MoE,ppo,classifier_chief, classifier_giga,FusionHisF,gigapath_mo
 
 def train_baseline(args,basedmodel,ppo,classifymodel,FusionHisF,memory_space,train_loader, validation_loader, test_loader=None):
     run_name = f"run_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    wandb.login(key="6c2e984aee5341ab06b1d26cefdb654ffea09bc7")
+    wandb.login(key="")
     wandb.init(
         project="WSI_baseline",      # 可以在網站上看到
         name=run_name,      # optional，可用於區分實驗
