@@ -68,7 +68,7 @@ def main(args):
     run_name = f"{args.csv.split('/')[-1].split('.')[0]}"
     save_dir = os.path.join(args.save_dir, run_name)
     os.makedirs(save_dir, exist_ok=True)
-    wandb.login(key="6c2e984aee5341ab06b1d26cefdb654ffea09bc7")
+    wandb.login(key="")
     wandb.init(
         project="wsi_state_MoE_ensemble_"+args.save_dir.split("/")[-1],      # 可以在網站上看到
         name=run_name,      # optional，可用於區分實驗
