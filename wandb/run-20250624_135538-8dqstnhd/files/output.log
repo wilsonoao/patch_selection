@@ -1,0 +1,18 @@
+dilated_ratio:  [1, 2, 4, 8, 16]
+segment_length:  [1024, 5792, 32768, 185363, 1048576]
+Number of trainable LongNet parameters:  85148160
+Global Pooling: False
+slide_encoder.pth: 100%|████████████████████████████████████████████████████████████| 345M/345M [00:31<00:00, 11.1MB/s]
+[92m Successfully Loaded Pretrained GigaPath model from hf_hub:prov-gigapath/prov-gigapath [00m
+[768, 512, 256]
+  0%|                                                                                          | 0/518 [00:00<?, ?it/s]
+Traceback (most recent call last):
+  File "/work/PAMIL_two_round/train.py", line 88, in <module>
+    main(args)
+  File "/work/PAMIL_two_round/train.py", line 81, in main
+    train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF, gigapath_model, memory,train_dataloader, validation_dataloader, test_dataloader, wandb)
+  File "/work/PAMIL_two_round/utilmodule/core.py", line 355, in train
+    ppo.update(memory)
+  File "/work/PAMIL_GIGAPATH_CHIEF/models/DPSF.py", line 236, in update
+    old_actions = torch.stack(memory.actions[1:], 0).cuda().detach()
+RuntimeError: stack expects a non-empty TensorList

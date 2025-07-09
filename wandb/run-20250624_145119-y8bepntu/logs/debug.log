@@ -1,0 +1,22 @@
+2025-06-24 14:51:19,460 INFO    MainThread:1176192 [wandb_setup.py:_flush():81] Current SDK version is 0.20.1
+2025-06-24 14:51:19,460 INFO    MainThread:1176192 [wandb_setup.py:_flush():81] Configure stats pid to 1176192
+2025-06-24 14:51:19,460 INFO    MainThread:1176192 [wandb_setup.py:_flush():81] Loading settings from /root/.config/wandb/settings
+2025-06-24 14:51:19,460 INFO    MainThread:1176192 [wandb_setup.py:_flush():81] Loading settings from /work/PAMIL_two_round/wandb/settings
+2025-06-24 14:51:19,460 INFO    MainThread:1176192 [wandb_setup.py:_flush():81] Loading settings from environment variables
+2025-06-24 14:51:19,461 INFO    MainThread:1176192 [wandb_init.py:setup_run_log_directory():703] Logging user logs to /work/PAMIL_two_round/wandb/run-20250624_145119-y8bepntu/logs/debug.log
+2025-06-24 14:51:19,461 INFO    MainThread:1176192 [wandb_init.py:setup_run_log_directory():704] Logging internal logs to /work/PAMIL_two_round/wandb/run-20250624_145119-y8bepntu/logs/debug-internal.log
+2025-06-24 14:51:19,461 INFO    MainThread:1176192 [wandb_init.py:init():831] calling init triggers
+2025-06-24 14:51:19,461 INFO    MainThread:1176192 [wandb_init.py:init():836] wandb.init called with sweep_config: {}
+config: {'type': 'tcga', 'mode': 'rlselect', 'seed': 2021, 'num_epochs': 300, 'lr': 1e-05, 'in_chans': 1024, 'embed_dim': 768, 'attn': 'normal', 'gm': 'cluster', 'cls': True, 'num_msg': 1, 'ape': True, 'n_classes': 2, 'num_layers': 2, 'instaceclass': True, 'CE_CL': True, 'ape_class': False, 'test_h5': '/work/data/TCGA-LUAD-FS/CHIEF/20X/h5_files(stain_norm)', 'train_h5': '/work/data/TCGA-LUAD-FS/CHIEF/20X/h5_files(stain_norm)', 'csv': '/work/PAMIL_GIGAPATH_CHIEF/4_fold/LUAD/TP53/dataset_fold_0.csv', 'chief_feature_dir': '/work/data/TCGA-LUAD-FS/CHIEF/20X/pt_files(stain_norm)', 'gigapath_feature_dir': '/work/data/TCGA-LUAD-FS/GIGAPATH/20X/pt_files(stain_norm)', 'policy_hidden_dim': 768, 'feature_dim': 768, 'state_dim': 768, 'action_size': 30, 'policy_conv': False, 'action_std': 0.5, 'ppo_lr': 1e-05, 'ppo_gamma': 0.1, 'K_epochs': 3, 'test_total_T': 3, 'train_total_T': 3, 'reward_rule': 'cl', 'save_dir': '/work/PAMIL_GIGAPATH_CHIEF/test', 'patience': 20, 'test_dir': '/work/PAMIL_GIGAPATH_CHIEF/test', '_wandb': {}}
+2025-06-24 14:51:19,461 INFO    MainThread:1176192 [wandb_init.py:init():872] starting backend
+2025-06-24 14:51:19,664 INFO    MainThread:1176192 [wandb_init.py:init():875] sending inform_init request
+2025-06-24 14:51:19,665 INFO    MainThread:1176192 [wandb_init.py:init():883] backend started and connected
+2025-06-24 14:51:19,665 INFO    MainThread:1176192 [wandb_init.py:init():956] updated telemetry
+2025-06-24 14:51:19,666 INFO    MainThread:1176192 [wandb_init.py:init():980] communicating run to backend with 90.0 second timeout
+2025-06-24 14:51:20,270 INFO    MainThread:1176192 [wandb_init.py:init():1032] starting run threads in backend
+2025-06-24 14:51:20,324 INFO    MainThread:1176192 [wandb_run.py:_console_start():2453] atexit reg
+2025-06-24 14:51:20,324 INFO    MainThread:1176192 [wandb_run.py:_redirect():2301] redirect: wrap_raw
+2025-06-24 14:51:20,324 INFO    MainThread:1176192 [wandb_run.py:_redirect():2370] Wrapping output streams.
+2025-06-24 14:51:20,324 INFO    MainThread:1176192 [wandb_run.py:_redirect():2393] Redirects installed.
+2025-06-24 14:51:20,325 INFO    MainThread:1176192 [wandb_init.py:init():1078] run started, returning control to user process
+2025-06-24 14:52:06,552 INFO    MsgRouterThr:1176192 [mailbox.py:close():129] [no run ID] Closing mailbox, abandoning 1 handles.

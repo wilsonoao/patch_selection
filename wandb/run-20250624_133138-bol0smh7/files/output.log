@@ -1,0 +1,26 @@
+dilated_ratio:  [1, 2, 4, 8, 16]
+segment_length:  [1024, 5792, 32768, 185363, 1048576]
+Number of trainable LongNet parameters:  85148160
+Global Pooling: False
+Traceback (most recent call last):
+  File "/work/PAMIL_two_round/train.py", line 88, in <module>
+    main(args)
+  File "/work/PAMIL_two_round/train.py", line 77, in main
+    gigapath_model = slide_encoder.create_model("hf_hub:prov-gigapath/prov-gigapath", "gigapath_slide_enc12l768d", 1536).to(device)
+  File "/work/PAMIL_two_round/gigapath/slide_encoder.py", line 227, in create_model
+    model = timm.create_model(model_arch, pretrained=False, in_chans=in_chans, **kwargs)
+  File "/opt/conda/lib/python3.10/site-packages/timm/models/_factory.py", line 126, in create_model
+    model = create_fn(
+  File "/work/PAMIL_two_round/gigapath/slide_encoder.py", line 257, in gigapath_slide_enc12l768d
+    model = LongNetViT(embed_dim=768, depth=12, mlp_ratio=4, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+  File "/work/PAMIL_two_round/gigapath/slide_encoder.py", line 119, in __init__
+    self.initialize_vit_weights()
+  File "/work/PAMIL_two_round/gigapath/slide_encoder.py", line 124, in initialize_vit_weights
+    pos_embed = get_2d_sincos_pos_embed(self.pos_embed.shape[-1], self.slide_ngrids, cls_token=True)
+  File "/work/PAMIL_two_round/gigapath/pos_embed.py", line 42, in get_2d_sincos_pos_embed
+    pos_embed = get_2d_sincos_pos_embed_from_grid(embed_dim, grid)
+  File "/work/PAMIL_two_round/gigapath/pos_embed.py", line 52, in get_2d_sincos_pos_embed_from_grid
+    emb_h = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[0])  # (H*W, D/2)
+  File "/work/PAMIL_two_round/gigapath/pos_embed.py", line 74, in get_1d_sincos_pos_embed_from_grid
+    emb_cos = np.cos(out)  # (M, D/2)
+KeyboardInterrupt

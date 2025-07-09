@@ -1,0 +1,15 @@
+{"time":"2025-07-01T08:48:33.534861922Z","level":"INFO","msg":"stream: starting","core version":"0.20.1","symlink path":"/work/PAMIL_two_round/wandb/run-20250701_084833-jcx4femo/logs/debug-core.log"}
+{"time":"2025-07-01T08:48:33.889665869Z","level":"INFO","msg":"stream: created new stream","id":"jcx4femo"}
+{"time":"2025-07-01T08:48:33.889704601Z","level":"INFO","msg":"stream: started","id":"jcx4femo"}
+{"time":"2025-07-01T08:48:33.8897499Z","level":"INFO","msg":"handler: started","stream_id":"jcx4femo"}
+{"time":"2025-07-01T08:48:33.889748689Z","level":"INFO","msg":"writer: Do: started","stream_id":"jcx4femo"}
+{"time":"2025-07-01T08:48:33.889761565Z","level":"INFO","msg":"sender: started","stream_id":"jcx4femo"}
+{"time":"2025-07-01T08:48:34.153600112Z","level":"INFO","msg":"Starting system monitor"}
+{"time":"2025-07-01T08:50:36.431796471Z","level":"INFO","msg":"stream: closing","id":"jcx4femo"}
+{"time":"2025-07-01T08:50:36.431819606Z","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2025-07-01T08:50:36.431843461Z","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2025-07-01T08:50:37.015912055Z","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2025-07-01T08:50:37.401657673Z","level":"INFO","msg":"handler: closed","stream_id":"jcx4femo"}
+{"time":"2025-07-01T08:50:37.401671748Z","level":"INFO","msg":"writer: Close: closed","stream_id":"jcx4femo"}
+{"time":"2025-07-01T08:50:37.401702231Z","level":"INFO","msg":"sender: closed","stream_id":"jcx4femo"}
+{"time":"2025-07-01T08:50:37.401708733Z","level":"INFO","msg":"stream: closed","id":"jcx4femo"}

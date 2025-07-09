@@ -1,0 +1,15 @@
+{"time":"2025-07-01T15:15:19.991168418Z","level":"INFO","msg":"stream: starting","core version":"0.20.1","symlink path":"/work/PAMIL_two_round/wandb/run-20250701_151519-srpp3pod/logs/debug-core.log"}
+{"time":"2025-07-01T15:15:20.326691246Z","level":"INFO","msg":"stream: created new stream","id":"srpp3pod"}
+{"time":"2025-07-01T15:15:20.326734348Z","level":"INFO","msg":"writer: Do: started","stream_id":"srpp3pod"}
+{"time":"2025-07-01T15:15:20.326740831Z","level":"INFO","msg":"sender: started","stream_id":"srpp3pod"}
+{"time":"2025-07-01T15:15:20.326838608Z","level":"INFO","msg":"stream: started","id":"srpp3pod"}
+{"time":"2025-07-01T15:15:20.326838432Z","level":"INFO","msg":"handler: started","stream_id":"srpp3pod"}
+{"time":"2025-07-01T15:15:20.628153023Z","level":"INFO","msg":"Starting system monitor"}
+{"time":"2025-07-01T16:17:20.77676206Z","level":"INFO","msg":"stream: closing","id":"srpp3pod"}
+{"time":"2025-07-01T16:17:20.777039287Z","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2025-07-01T16:17:20.777669688Z","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2025-07-01T16:17:21.817888817Z","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2025-07-01T16:17:22.108474748Z","level":"INFO","msg":"writer: Close: closed","stream_id":"srpp3pod"}
+{"time":"2025-07-01T16:17:22.114711692Z","level":"INFO","msg":"handler: closed","stream_id":"srpp3pod"}
+{"time":"2025-07-01T16:17:22.11471966Z","level":"INFO","msg":"sender: closed","stream_id":"srpp3pod"}
+{"time":"2025-07-01T16:17:22.11474327Z","level":"INFO","msg":"stream: closed","id":"srpp3pod"}

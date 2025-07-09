@@ -3,7 +3,7 @@ import sys
 from gigapath import slide_encoder
 from gigapath.pipeline import run_inference_with_slide_encoder
 from huggingface_hub import login
-login("")
+login("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")
  
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -43,7 +43,7 @@ def main(args):
     seed_torch(2021)
     res_list = []
     
-    basedmodel,ppo,_,memory,FusionHisF = create_model(args)
+    basedmodel,ppo,_,memory,FusionHisF, MoE = create_model(args)
     data_csv_dir = args.csv
     chief_feature_dir = args.chief_feature_dir
     gigapath_feature_dir = args.gigapath_feature_dir
@@ -68,9 +68,9 @@ def main(args):
     run_name = f"{args.csv.split('/')[-1].split('.')[0]}"
     save_dir = os.path.join(args.save_dir, run_name)
     os.makedirs(save_dir, exist_ok=True)
-    wandb.login(key="")
+    wandb.login(key="6c2e984aee5341ab06b1d26cefdb654ffea09bc7")
     wandb.init(
-        project="wsi_state_gigapath_60"+args.save_dir.split("/")[-1],      # 可以在網站上看到
+        project="wsi_state_MoE_ensemble_"+args.save_dir.split("/")[-1],      # 可以在網站上看到
         name=run_name,      # optional，可用於區分實驗
         config=vars(args)                    # optional，紀錄一些超參數
     )
@@ -78,9 +78,7 @@ def main(args):
     gigapath_model.eval()
     
     # ppo = train_stage1(args,ppo,classifier_chief, classifier_giga, gigapath_model, memory,train_dataloader, validation_dataloader, test_dataloader, wandb)
-    train(args,None,ppo,classifier_chief, classifier_giga,None, gigapath_model, memory,train_dataloader, validation_dataloader, test_dataloader, wandb)
-
-
+    train(args,MoE,ppo,classifier_chief, classifier_giga,FusionHisF, gigapath_model, memory,train_dataloader, validation_dataloader, test_dataloader, wandb)
 
 if __name__ == "__main__":
 

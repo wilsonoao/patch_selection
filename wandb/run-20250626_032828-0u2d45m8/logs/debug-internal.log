@@ -1,0 +1,15 @@
+{"time":"2025-06-26T03:28:28.532107834Z","level":"INFO","msg":"stream: starting","core version":"0.20.1","symlink path":"/work/PAMIL_two_round/wandb/run-20250626_032828-0u2d45m8/logs/debug-core.log"}
+{"time":"2025-06-26T03:28:28.892799887Z","level":"INFO","msg":"stream: created new stream","id":"0u2d45m8"}
+{"time":"2025-06-26T03:28:28.892813016Z","level":"INFO","msg":"stream: started","id":"0u2d45m8"}
+{"time":"2025-06-26T03:28:28.892815518Z","level":"INFO","msg":"handler: started","stream_id":"0u2d45m8"}
+{"time":"2025-06-26T03:28:28.892828371Z","level":"INFO","msg":"sender: started","stream_id":"0u2d45m8"}
+{"time":"2025-06-26T03:28:28.892834708Z","level":"INFO","msg":"writer: Do: started","stream_id":"0u2d45m8"}
+{"time":"2025-06-26T03:28:29.241743298Z","level":"INFO","msg":"Starting system monitor"}
+{"time":"2025-06-26T03:29:23.299936345Z","level":"INFO","msg":"stream: closing","id":"0u2d45m8"}
+{"time":"2025-06-26T03:29:23.299953669Z","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2025-06-26T03:29:23.299993022Z","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2025-06-26T03:29:24.000827628Z","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2025-06-26T03:29:24.287454009Z","level":"INFO","msg":"handler: closed","stream_id":"0u2d45m8"}
+{"time":"2025-06-26T03:29:24.287475884Z","level":"INFO","msg":"writer: Close: closed","stream_id":"0u2d45m8"}
+{"time":"2025-06-26T03:29:24.287494766Z","level":"INFO","msg":"sender: closed","stream_id":"0u2d45m8"}
+{"time":"2025-06-26T03:29:24.287519871Z","level":"INFO","msg":"stream: closed","id":"0u2d45m8"}

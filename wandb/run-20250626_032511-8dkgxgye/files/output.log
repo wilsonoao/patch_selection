@@ -1,0 +1,21 @@
+dilated_ratio:  [1, 2, 4, 8, 16]
+segment_length:  [1024, 5792, 32768, 185363, 1048576]
+Number of trainable LongNet parameters:  85148160
+Global Pooling: False
+slide_encoder.pth: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 345M/345M [00:34<00:00, 10.1MB/s]
+[92m Successfully Loaded Pretrained GigaPath model from hf_hub:prov-gigapath/prov-gigapath [00m
+[768, 512, 256]
+  0%|                                                                                                                                                                                            | 0/518 [00:00<?, ?it/s]
+torch.Size([1, 768])
+Traceback (most recent call last):
+  File "/work/PAMIL_two_round/train.py", line 88, in <module>
+    main(args)
+  File "/work/PAMIL_two_round/train.py", line 81, in main
+    train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF, gigapath_model, memory,train_dataloader, validation_dataloader, test_dataloader, wandb)
+  File "/work/PAMIL_two_round/utilmodule/core.py", line 299, in train
+    chief_features_group, gigapath_features_group, update_coords, update_chief_data, update_gigapath_data, memory = grouping_instance.action_make_subbags(
+  File "/work/PAMIL_two_round/utilmodule/core.py", line 589, in action_make_subbags
+    idx = interpolate_probs(action_index_pro, new_length = N ,action_size = action_size)
+  File "/work/PAMIL_two_round/utilmodule/core.py", line 536, in interpolate_probs
+    b,c = probs.shape
+ValueError: not enough values to unpack (expected 2, got 1)

@@ -1,0 +1,103 @@
+dilated_ratio:  [1, 2, 4, 8, 16]
+segment_length:  [1024, 5792, 32768, 185363, 1048576]
+Number of trainable LongNet parameters:  85148160
+Global Pooling: False
+slide_encoder.pth: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 345M/345M [00:31<00:00, 11.1MB/s]
+[92m Successfully Loaded Pretrained GigaPath model from hf_hub:prov-gigapath/prov-gigapath [00m
+[768, 512, 256]
+100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 518/518 [00:31<00:00, 16.30it/s]
+[[ 49 163]
+ [ 59 247]]
+[[ 38 174]
+ [ 55 251]]
+[[ 68 144]
+ [ 79 227]]
+100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 258/258 [00:15<00:00, 16.40it/s]
+[[  3 121]
+ [  4 130]]
+[[114  10]
+ [118  16]]
+[[ 40  84]
+ [ 27 107]]
+100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 258/258 [00:15<00:00, 16.41it/s]
+[[  5 119]
+ [  2 132]]
+[[116   8]
+ [117  17]]
+[[ 43  81]
+ [ 28 106]]
+Save model at epoch 0.
+val auc: 0.6051998074145402
+100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 518/518 [00:31<00:00, 16.25it/s]
+[[ 69 143]
+ [ 62 244]]
+[[ 72 140]
+ [ 50 256]]
+[[ 70 142]
+ [ 89 217]]
+100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 258/258 [00:15<00:00, 16.43it/s]
+[[76 48]
+ [65 69]]
+/opt/conda/lib/python3.10/site-packages/sklearn/metrics/_classification.py:1565: UndefinedMetricWarning: Precision is ill-defined and being set to 0.0 due to no predicted samples. Use `zero_division` parameter to control this behavior.
+  _warn_prf(average, modifier, f"{metric.capitalize()} is", len(result))
+[[124   0]
+ [134   0]]
+/opt/conda/lib/python3.10/site-packages/sklearn/metrics/_classification.py:1565: UndefinedMetricWarning: Precision is ill-defined and being set to 0.0 due to no predicted samples. Use `zero_division` parameter to control this behavior.
+  _warn_prf(average, modifier, f"{metric.capitalize()} is", len(result))
+[[124   0]
+ [134   0]]
+100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 258/258 [00:15<00:00, 16.38it/s]
+[[72 52]
+ [66 68]]
+/opt/conda/lib/python3.10/site-packages/sklearn/metrics/_classification.py:1565: UndefinedMetricWarning: Precision is ill-defined and being set to 0.0 due to no predicted samples. Use `zero_division` parameter to control this behavior.
+  _warn_prf(average, modifier, f"{metric.capitalize()} is", len(result))
+[[124   0]
+ [134   0]]
+/opt/conda/lib/python3.10/site-packages/sklearn/metrics/_classification.py:1565: UndefinedMetricWarning: Precision is ill-defined and being set to 0.0 due to no predicted samples. Use `zero_division` parameter to control this behavior.
+  _warn_prf(average, modifier, f"{metric.capitalize()} is", len(result))
+[[124   0]
+ [134   0]]
+100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 518/518 [00:31<00:00, 16.26it/s]
+[[ 81 131]
+ [ 58 248]]
+[[101 111]
+ [ 54 252]]
+[[ 74 138]
+ [ 85 221]]
+  8%|██████████████▏                                                                                                                                                                | 21/258 [00:01<00:15, 15.71it/s]
+Traceback (most recent call last):
+  File "/work/PAMIL_two_round/train.py", line 88, in <module>
+    main(args)
+  File "/work/PAMIL_two_round/train.py", line 81, in main
+    train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF, gigapath_model, memory,train_dataloader, validation_dataloader, test_dataloader, wandb)
+  File "/work/PAMIL_two_round/utilmodule/core.py", line 450, in train
+    precision, recall, f1, val_auc, val_accuracy = test(args,ppo,classifier_chief, classifier_giga,memory,test_loader, chief_model, gigapath_model, run_type="val", epoch=epoch, wandb=wandb)
+  File "/work/PAMIL_two_round/utilmodule/core.py", line 72, in test
+    wsi_embedding_gigapath = gigapath_wsi_embedding(gigapath_model, torch.cat(memory.select_gigapath_feature_pool, dim=1), torch.cat(memory.coords_actions, dim=1))
+  File "/work/PAMIL_two_round/utilmodule/core.py", line 163, in gigapath_wsi_embedding
+    wsi_feature_emb = run_inference_with_slide_encoder(slide_encoder_model=gigapath_model, tile_embeds=feature, coords=coords)
+  File "/opt/conda/lib/python3.10/site-packages/torch/utils/_contextlib.py", line 115, in decorate_context
+    return func(*args, **kwargs)
+  File "/work/PAMIL_two_round/gigapath/pipeline.py", line 187, in run_inference_with_slide_encoder
+    slide_embeds = slide_encoder_model(tile_embeds.cuda(), coords.cuda(), all_layer_embed=True)
+  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1501, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/work/PAMIL_two_round/gigapath/slide_encoder.py", line 209, in forward
+    x_list = self.encoder(src_tokens=None, token_embeddings=x, return_all_hiddens=all_layer_embed)["encoder_states"]
+  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1501, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/work/PAMIL_two_round/gigapath/torchscale/model/../../torchscale/architecture/encoder.py", line 374, in forward
+    x, l_aux_i = layer(
+  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1501, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/work/PAMIL_two_round/gigapath/torchscale/model/../../torchscale/architecture/encoder.py", line 127, in forward
+    x, _ = self.self_attn(
+  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1501, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/work/PAMIL_two_round/gigapath/torchscale/model/../../torchscale/component/dilated_attention.py", line 210, in forward
+    attn = self.scattering(outs, lses, tgt_len, bsz, offset=offset)
+  File "/work/PAMIL_two_round/gigapath/torchscale/model/../../torchscale/component/dilated_attention.py", line 124, in scattering
+    all_lses = [lse / lse_sum for lse in all_lses]
+  File "/work/PAMIL_two_round/gigapath/torchscale/model/../../torchscale/component/dilated_attention.py", line 124, in <listcomp>
+    all_lses = [lse / lse_sum for lse in all_lses]
+KeyboardInterrupt

@@ -1,0 +1,80 @@
+dilated_ratio:  [1, 2, 4, 8, 16]
+segment_length:  [1024, 5792, 32768, 185363, 1048576]
+Number of trainable LongNet parameters:  85148160
+Global Pooling: False
+slide_encoder.pth: 100%|█████████████████████████████████████████████████████████████████████████| 345M/345M [00:31<00:00, 11.0MB/s]
+[92m Successfully Loaded Pretrained GigaPath model from hf_hub:prov-gigapath/prov-gigapath [00m
+[768, 512, 256]
+  0%|                                                                                                       | 0/518 [00:00<?, ?it/s]
+
+Parameter: weight_ih_l0
+tensor([[-0.0008, -0.0314, -0.0045,  ..., -0.0035,  0.0290, -0.0352],
+        [-0.0355,  0.0281,  0.0076,  ..., -0.0262, -0.0251,  0.0187],
+        [-0.0261,  0.0119,  0.0314,  ...,  0.0315, -0.0083,  0.0257],
+        ...,
+        [ 0.0129, -0.0103,  0.0007,  ...,  0.0049, -0.0161,  0.0020],
+        [ 0.0050,  0.0218, -0.0062,  ..., -0.0349,  0.0145, -0.0054],
+        [ 0.0146, -0.0190,  0.0271,  ..., -0.0095,  0.0348, -0.0052]],
+       device='cuda:0')
+
+Parameter: weight_hh_l0
+tensor([[ 0.0129, -0.0219,  0.0258,  ...,  0.0308, -0.0087, -0.0241],
+        [ 0.0066, -0.0273, -0.0098,  ...,  0.0266, -0.0215,  0.0086],
+        [ 0.0001,  0.0350, -0.0142,  ..., -0.0052,  0.0100, -0.0099],
+        ...,
+        [-0.0111,  0.0336,  0.0112,  ...,  0.0158, -0.0002,  0.0154],
+        [-0.0219, -0.0191, -0.0360,  ..., -0.0243, -0.0341,  0.0124],
+        [ 0.0141,  0.0145, -0.0161,  ...,  0.0199, -0.0033, -0.0172]],
+       device='cuda:0')
+
+Parameter: bias_ih_l0
+tensor([-0.0266, -0.0143,  0.0360,  ..., -0.0058, -0.0154, -0.0336],
+       device='cuda:0')
+
+Parameter: bias_hh_l0
+tensor([-0.0063,  0.0283, -0.0027,  ...,  0.0324,  0.0266, -0.0048],
+       device='cuda:0')
+Clipped grad norm: nan
+
+Parameter: weight_ih_l0
+tensor([[nan, nan, nan,  ..., nan, nan, nan],
+        [nan, nan, nan,  ..., nan, nan, nan],
+        [nan, nan, nan,  ..., nan, nan, nan],
+        ...,
+        [nan, nan, nan,  ..., nan, nan, nan],
+        [nan, nan, nan,  ..., nan, nan, nan],
+        [nan, nan, nan,  ..., nan, nan, nan]], device='cuda:0')
+
+Parameter: weight_hh_l0
+tensor([[nan, nan, nan,  ..., nan, nan, nan],
+        [nan, nan, nan,  ..., nan, nan, nan],
+        [nan, nan, nan,  ..., nan, nan, nan],
+        ...,
+        [nan, nan, nan,  ..., nan, nan, nan],
+        [nan, nan, nan,  ..., nan, nan, nan],
+        [nan, nan, nan,  ..., nan, nan, nan]], device='cuda:0')
+
+Parameter: bias_ih_l0
+tensor([nan, nan, nan,  ..., nan, nan, nan], device='cuda:0')
+
+Parameter: bias_hh_l0
+tensor([nan, nan, nan,  ..., nan, nan, nan], device='cuda:0')
+Traceback (most recent call last):
+  File "/work/PAMIL_two_round/train.py", line 88, in <module>
+    main(args)
+  File "/work/PAMIL_two_round/train.py", line 81, in main
+    train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF, gigapath_model, memory,train_dataloader, validation_dataloader, test_dataloader, wandb)
+  File "/work/PAMIL_two_round/utilmodule/core.py", line 357, in train
+    ppo.update(memory)
+  File "/work/PAMIL_GIGAPATH_CHIEF/models/DPSF.py", line 241, in update
+    logprobs, state_values, dist_entropy = self.policy.evaluate(old_msg_states, old_actions)
+  File "/work/PAMIL_GIGAPATH_CHIEF/models/DPSF.py", line 175, in evaluate
+    dist = torch.distributions.multivariate_normal.MultivariateNormal(action_mean, scale_tril=cov_mat)
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributions/multivariate_normal.py", line 150, in __init__
+    super().__init__(batch_shape, event_shape, validate_args=validate_args)
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributions/distribution.py", line 62, in __init__
+    raise ValueError(
+ValueError: Expected parameter loc (Tensor of shape (1, 30)) of distribution MultivariateNormal(loc: torch.Size([1, 30]), scale_tril: torch.Size([1, 30, 30])) to satisfy the constraint IndependentConstraint(Real(), 1), but found invalid values:
+tensor([[nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan,
+         nan, nan, nan, nan, nan, nan]], device='cuda:0',
+       grad_fn=<ExpandBackward0>)

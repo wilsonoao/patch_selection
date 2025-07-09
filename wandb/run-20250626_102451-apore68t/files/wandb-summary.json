@@ -1,0 +1,1 @@
+{"_wandb":{"runtime":111},"train/gigapath_false_label_probability":0.4699591100215912,"_runtime":111.159048753,"_timestamp":1.7509336031881554e+09,"_step":517,"reward":0.5285478234291077,"train/chief_false_label_probability":0.4729408919811249,"train/gigapath_true_label_probability":0.5300409197807312,"train/chief_true_label_probability":0.5270590782165527}

@@ -1,0 +1,51 @@
+{
+  "os": "Linux-6.8.0-59-generic-x86_64-with-glibc2.27",
+  "python": "CPython 3.10.9",
+  "startedAt": "2025-07-01T22:17:08.795503Z",
+  "args": [
+    "--csv",
+    "/work/PAMIL_GIGAPATH_CHIEF/4_fold/LUAD/TP53/dataset_fold_2.csv",
+    "--save_dir",
+    "/work/PAMIL_two_round/result_ensemble/TP53",
+    "--test_total_T",
+    "3",
+    "--train_total_T",
+    "3",
+    "--action_size",
+    "60"
+  ],
+  "program": "/work/PAMIL_two_round/train.py",
+  "codePath": "train.py",
+  "email": "wilsonouo@iir.csie.ncku.edu.tw",
+  "root": "/work/PAMIL_two_round",
+  "host": "48d940a1b48a",
+  "executable": "/opt/conda/bin/python",
+  "codePathLocal": "train.py",
+  "cpu_count": 20,
+  "cpu_count_logical": 28,
+  "gpu": "NVIDIA GeForce RTX 4090",
+  "gpu_count": 1,
+  "disk": {
+    "/": {
+      "total": "2014574526464",
+      "used": "1569742819328"
+    }
+  },
+  "memory": {
+    "total": "67151560704"
+  },
+  "cpu": {
+    "count": 20,
+    "countLogical": 28
+  },
+  "gpu_nvidia": [
+    {
+      "name": "NVIDIA GeForce RTX 4090",
+      "memoryTotal": "25757220864",
+      "cudaCores": 16384,
+      "architecture": "Ada",
+      "uuid": "GPU-2fccb750-4489-b79c-e2b0-95e35da4e6f5"
+    }
+  ],
+  "cudaVersion": "12.7"
+}

@@ -1,12 +1,22 @@
 #!/bin/bash
 
-for file in /n/scratch/users/f/fas994/wilson/RL/ppo_chief/PAMIL/five_fold/*; do
-	echo ${file}
-	name_no_ext="${file##*/}"
-	name_no_ext="${name_no_ext%.*}"
-	python test.py \
-               --csv "$file" \
-	       --test_dir "/n/scratch/users/f/fas994/wilson/RL/ppo_chief/PAMIL/result_q10_turn3_no_penalty_five_fold/$name_no_ext" \
-	       --test_total_T 3 \
-	       --action_size 10
+BASE_DIR="/work/data/4_fold/LUAD"
+TEST_BASE_DIR="/work/PAMIL_two_round/result_ensemble"
+
+for mutation_path in "$BASE_DIR"/*; do
+    if [ -d "$mutation_path" ]; then
+        mutation_name=$(basename "$mutation_path")  # e.g., CSMD3, MUC16
+
+        for csv in "$mutation_path"/dataset_fold_*.csv; do
+            fold_name=$(basename "$csv" .csv)  # e.g., dataset_fold_0
+            test_dir="$TEST_BASE_DIR/$mutation_name/$fold_name"
+
+            # echo "📁 儲存到: $test_dir"
+
+            python test.py \
+                --csv "$csv" \
+                --test_dir "$test_dir" \
+                --action_size 60
+        done
+    fi
 done

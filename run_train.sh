@@ -1,7 +1,7 @@
 #!/bin/bash
 
-BASE_DIR="/work/PAMIL_GIGAPATH_CHIEF/4_fold/LUAD"
-SAVE_BASE_DIR="/work/PAMIL_two_round_100/result_two_round_100/"
+BASE_DIR="/work/data/4_fold/LUAD"
+SAVE_BASE_DIR="/work/PAMIL_two_round/result_MoE_ensemble"
 
 for mutation_path in "$BASE_DIR"/*; do
     if [ -d "$mutation_path" ]; then
@@ -19,7 +19,7 @@ for mutation_path in "$BASE_DIR"/*; do
                 --save_dir "$save_dir" \
                 --test_total_T 3 \
                 --train_total_T 3 \
-                --action_size 100
+                --action_size 60
         done
     fi
 done

@@ -26,10 +26,12 @@ class Memory:
         self.cls_states = []  
         # self.action_states = []  
         self.merge_msg_states = [] 
+        self.expert_select_logprobs = []
+        self.expert_states = []
+        self.expert_select_actions = []
         
         self.results_dict = []
 
-        
 
     def clear_memory(self):
        
@@ -48,7 +50,9 @@ class Memory:
         del self.msg_states[:]
         del self.cls_states[:]
         del self.merge_msg_states[:]
-        
+        del self.expert_select_logprobs[:]
+        del self.expert_select_actions[:]
+        del self.expert_states[:]
         
         del self.results_dict[:]
     
@@ -74,39 +78,6 @@ class Memory:
         del self.results_dict[:]
 
 
- 
-
-class Cat_Attention(nn.Module):
-    def __init__(self, dim, heads = 8, dim_head = 64, dropout = 0.):
-        super().__init__()
-        inner_dim = dim_head *  heads
-        project_out = not (heads == 1 and dim_head == dim)
-
-        self.heads = heads
-        self.scale = dim_head ** -0.5
-
-        self.attend = nn.Softmax(dim = -1)
-        self.dropout = nn.Dropout(dropout)
-
-        self.to_qkv = nn.Linear(dim, inner_dim * 3, bias = False)
-
-        self.to_out = nn.Sequential(
-            nn.Linear(inner_dim, dim),
-            nn.Dropout(dropout)
-        ) if project_out else nn.Identity()
-
-    def forward(self, x):
-        qkv = self.to_qkv(x).chunk(3, dim = -1)
-        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = self.heads), qkv)
-
-        dots = torch.matmul(q, k.transpose(-1, -2)) * self.scale
-
-        attn = self.attend(dots)
-        attn = self.dropout(attn)
-
-        out = torch.matmul(attn, v)
-        out = rearrange(out, 'b h n d -> b n (h d)')  
-        return self.to_out(out)
 
 class ActorCritic(nn.Module):
     def __init__(self, feature_dim, state_dim, device, hidden_state_dim=1024, policy_conv=False, action_std=0.1, action_size=2):
@@ -117,9 +88,6 @@ class ActorCritic(nn.Module):
         self.policy_conv = policy_conv
         self.feature_dim = feature_dim
         self.feature_ratio = int(math.sqrt(state_dim / feature_dim))
-        
-        self.merge_catmsg_selfatten = Cat_Attention(dim=state_dim)
-        
 
         # self.gru = nn.GRU(hidden_state_dim, hidden_state_dim, batch_first=False)
 
@@ -131,25 +99,16 @@ class ActorCritic(nn.Module):
         )
 
         self.critic = nn.Sequential(
-            nn.Linear(hidden_state_dim, 1))
+            nn.Linear(state_dim, hidden_state_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_state_dim, 1)
+        )
 
         self.action_var = torch.full((action_size,), action_std).to(device)
 
     def forward(self):
         raise NotImplementedError
     
-    def process_state_before_act(self, state_ini, memory, restart_batch=False, training=False):
-        msg_cls, x_groups, msg_tokens_num = state_ini
-
-        msg_state = x_groups[0][:,:,0:1].squeeze(dim=0).detach()
-        
-        
-        old_msg_state = torch.stack(memory.msg_states[:], dim=1).view(1,-1,512).detach() 
-        msg_state = self.merge_catmsg_selfatten(old_msg_state)
-        memory.merge_msg_states[-1] = msg_state[:, -1:, :] 
-        return msg_state[:, -1:, :],memory
-        
-        
         
     def act(self, current_state, memory, restart_batch=False, training=False):
         # state_ini = memory.merge_msg_states[-1].detach()

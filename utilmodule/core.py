@@ -3,15 +3,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch
 import copy
-from utilmodule.utils import calculate_error,calculate_metrics,f1_score,split_array,save_checkpoint,cosine_scheduler, simsiam_sia_loss, compute_pamil_reward, pred_label_process
+from utilmodule.utils import calculate_metrics
 
 import numpy as np
+import pandas as pd
 from sklearn.cluster import KMeans
 import time
 import random
 from tqdm import tqdm
 import torch.nn.functional as F
-from utilmodule.environment import expand_data
 import torch.optim as optim
 import wandb
 import datetime
@@ -22,33 +22,51 @@ from CHIEF_network import ClfNet
 from gigapath.pipeline import run_inference_with_slide_encoder
 
 
-def test(args,basedmodel,ppo,classifier_chief,FusionHisF,memory,test_loader, chief_model, run_type="test", epoch=0):
+def test(args,MoE, ppo,classifier_chief, classifier_giga,memory,test_loader, chief_model, gigapath_model, run_type="test", epoch=0, wandb=None, run_time_test=True, record_csv=False):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    classifier_chief.eval()
+    classifier_giga.eval()
 
     with torch.no_grad():
         label_list = []
         Y_prob_list = []
+        chief_Y_prob_list = []
+        giga_Y_prob_list = []
         for idx, (coords, chief_data, gigapath_data, label) in enumerate (tqdm(test_loader)):
             correct = 0
             total = 0
             coords = coords.squeeze(dim=3)
             update_coords, update_chief_data, update_gigapath_data, label = coords.to(device), chief_data.to(device), gigapath_data.to(device), label.to(device).long()
             # 預處理
-            if args.type == 'camelyon16':
-                update_data = basedmodel.fc1(update_data)
-            else:
-                chief_data = chief_data.float()
-                gigapath_data = gigapath_data.float()
-
-            #if args.ape:
-            #    chief_data += basedmodel.absolute_pos_embed.expand(1, chief_data.shape[1], basedmodel.args.embed_dim)
-            #    gigapath_data += basedmodel.absolute_pos_embed.expand(1, gigapath_data.shape[1], basedmodel.args.embed_dim)
+            chief_data = chief_data.float()
+            gigapath_data = gigapath_data.float()
 
             grouping_instance = grouping(action_size=args.action_size)
-            whole_chief = update_chief_data.squeeze(0) 
-            # CHIEF model replace the basemodel                                       
-            memory.merge_msg_states.append(cheif_wsi_embedding(chief_model, whole_chief))    
+
+            whole_chief = update_chief_data.detach().squeeze(0)
+            chief_wsi = chief_wsi_embedding(chief_model, whole_chief)
+            whole_gigapath = update_gigapath_data.detach()
+            gigapath_wsi = gigapath_wsi_embedding(gigapath_model, whole_gigapath, update_coords).to(device)
+            patch_num = update_coords.size(1) / 16000 # Normalization
+            patch_feat_tensor = torch.tensor([[patch_num]], dtype=torch.float32).to(device)  # shape [1, 1]
+
+            # concate MoE state
+            expert_state = torch.cat([chief_wsi, gigapath_wsi], dim=-1) 
+            expert_state = torch.cat([expert_state, patch_feat_tensor], dim=-1)
+            memory.expert_states.append(expert_state)
+            # MoE
+            expert_select = MoE.select_action(
+                None, memory, restart_batch=True, training=True
+            )
+
+            # agent state
+            if expert_select == 0:                
+                agent_state = chief_wsi
+            elif expert_select == 1:
+                agent_state = gigapath_wsi
+            memory.merge_msg_states.append(agent_state) 
 
             _ = ppo.select_action(
                 None, memory, restart_batch=True, training=False
@@ -66,26 +84,63 @@ def test(args,basedmodel,ppo,classifier_chief,FusionHisF,memory,test_loader, chi
             chief_features_group = chief_features_group[0].squeeze(0) 
             memory.select_chief_feature_pool.append(chief_features_group)                                             
 
-            wsi_embedding_chief = cheif_wsi_embedding(chief_model, torch.cat(memory.select_chief_feature_pool, dim=0))
+            gigapath_features_group = gigapath_features_group[0].unsqueeze(0)
+            memory.select_gigapath_feature_pool.append(gigapath_features_group)
 
-            output = classifier_chief(wsi_embedding_chief)
+            # 最終分類（WSI level）
+            wsi_embedding_chief = chief_wsi_embedding(chief_model, torch.cat(memory.select_chief_feature_pool, dim=0))
+            wsi_embedding_gigapath = gigapath_wsi_embedding(gigapath_model, torch.cat(memory.select_gigapath_feature_pool, dim=1), torch.cat(memory.coords_actions, dim=1))
+            
+            chief_output = classifier_chief(wsi_embedding_chief)
+            probs_chief = F.softmax(chief_output, dim=1)
+            chief_Y_prob_list.append(probs_chief)
+            
+            # gigapath
+            output_giga = classifier_giga(wsi_embedding_gigapath.to(device))
+            probs_giga = F.softmax(output_giga, dim=1)
+            giga_Y_prob_list.append(probs_giga)
 
-            # Soft Voting
-            pred = torch.argmax(output, dim=1)
-            probs = F.softmax(output, dim=1)
-
-            # 計算正確率
-            correct += (pred == label).sum().item()
-            total += label.size(0)
-            memory.clear_memory()
+            # ensemble
+            ensemble_probs = (probs_chief + probs_giga) / 2
+            Y_prob_list.append(ensemble_probs)
             label_list.append(label)
-            Y_prob_list.append(probs)
+            memory.clear_memory()
+
+        if run_time_test:
+            # chief record
+            targets = np.asarray(torch.cat(label_list, dim=0).detach().cpu().numpy()).reshape(-1)
+            probs = np.asarray(torch.cat(chief_Y_prob_list, dim=0).detach().cpu().numpy())
+            precision, recall, f1, auc, accuracy = calculate_metrics(targets, probs)
+            wandb.log({
+                f"{run_type}_chief/precision": precision,
+                f"{run_type}_chief/recall": recall,
+                f"{run_type}_chief/f1": f1,
+                f"{run_type}_chief/auc": auc,
+                f"{run_type}_chief/acc": accuracy
+            })
+
+            # gigapath record
+            targets = np.asarray(torch.cat(label_list, dim=0).detach().cpu().numpy()).reshape(-1)
+            probs = np.asarray(torch.cat(giga_Y_prob_list, dim=0).detach().cpu().numpy())
+            precision, recall, f1, auc, accuracy = calculate_metrics(targets, probs)
+            wandb.log({
+                f"{run_type}_giga/precision": precision,
+                f"{run_type}_giga/recall": recall,
+                f"{run_type}_giga/f1": f1,
+                f"{run_type}_giga/auc": auc,
+                f"{run_type}_giga/acc": accuracy
+            })
 
         targets = np.asarray(torch.cat(label_list, dim=0).cpu().numpy()).reshape(-1)  
         probs = np.asarray(torch.cat(Y_prob_list, dim=0).cpu().numpy())  
         precision, recall, f1, auc, accuracy = calculate_metrics(targets, probs)
-        #print(args.csv.split("/")[-1])
-        #print(f'[Epoch {epoch+1}/{args.num_epochs}] {run_type} Accuracy: {accuracy:.4f} " {run_type} Precision: {precision:.4f}, {run_type} Recall: {recall:.4f}, {run_type} F1 Score: {f1:.4f}, {run_type} AUC: {auc:.4f}')
+        if record_csv:
+            df = pd.DataFrame({
+                'label': targets,
+                'prob': probs[:, 1]
+            })
+            df.to_csv(os.path.join(args.test_dir, args.csv_saveName), index=False)
+
     return precision, recall, f1, auc, accuracy
 
 def test_baseline(args,basedmodel,ppo,classifymodel,FusionHisF,memory_space,test_loader, run_type="test", epoch=0):
@@ -96,17 +151,6 @@ def test_baseline(args,basedmodel,ppo,classifymodel,FusionHisF,memory_space,test
         Y_prob_list = []
         for idx, (coords, data, label) in enumerate (tqdm(test_loader)):
             update_coords, update_data, label = coords.to(device), data.to(device), label.to(device).long()
-
-
-            #if args.type == 'camelyon16':
-            #    update_data = basedmodel.fc1(update_data)
-            #else:
-            #    update_data = update_data.float()
-            #if args.ape:
-            #    update_data = update_data + basedmodel.absolute_pos_embed.expand(1,update_data.shape[1],basedmodel.args.embed_dim)
-
-            #update_coords, update_data ,total_T = expand_data(update_coords, update_data, action_size = args.action_size, total_steps=args.test_total_T)
-            #grouping_instance = grouping(action_size=args.action_size)
 
             W_logits = classifymodel (update_data).squeeze(1)
             W_Y_prob = F.softmax(W_logits, dim=1)
@@ -121,7 +165,7 @@ def test_baseline(args,basedmodel,ppo,classifymodel,FusionHisF,memory_space,test
         #print(f'[Epoch {epoch+1}/{args.num_epochs}] {run_type} Accuracy: {accuracy:.4f} " {run_type} Precision: {precision:.4f}, {run_type} Recall: {recall:.4f}, {run_type} F1 Score: {f1:.4f}, {run_type} AUC: {auc:.4f}')
     return precision, recall, f1, auc, accuracy
 
-def cheif_wsi_embedding(chief_model, feature):
+def chief_wsi_embedding(chief_model, feature):
     anatomical=13
     with torch.no_grad():
         x,tmp_z = feature,anatomical
@@ -175,7 +219,7 @@ def train_stage1(args,ppo,classifier_chief, classifier_giga,gigapath_model, memo
             grouping_instance = grouping(action_size=args.action_size)
             whole_chief = update_chief_data.squeeze(0) 
             # CHIEF model replace the basemodel                                       
-            memory.merge_msg_states.append(cheif_wsi_embedding(chief_model, whole_chief))    
+            memory.merge_msg_states.append(chief_wsi_embedding(chief_model, whole_chief))    
 
             _ = ppo.select_action(
                 None, memory, restart_batch=True, training=True
@@ -198,7 +242,7 @@ def train_stage1(args,ppo,classifier_chief, classifier_giga,gigapath_model, memo
             memory.select_gigapath_feature_pool.append(gigapath_features_group)
 
             # 最終分類（WSI level）
-            wsi_embedding_chief = cheif_wsi_embedding(chief_model, torch.cat(memory.select_chief_feature_pool, dim=0)).detach().requires_grad_()
+            wsi_embedding_chief = chief_wsi_embedding(chief_model, torch.cat(memory.select_chief_feature_pool, dim=0)).detach().requires_grad_()
             wsi_embedding_gigapath = gigapath_wsi_embedding(gigapath_model, torch.cat(memory.select_gigapath_feature_pool, dim=1), torch.cat(memory.coords_actions, dim=1)).to(device).detach().requires_grad_()
             
             # chief
@@ -236,16 +280,12 @@ def train_stage1(args,ppo,classifier_chief, classifier_giga,gigapath_model, memo
     return ppo
 
 
-def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigapath_model, memory,train_loader, validation_loader, test_loader=None, wandb=None):
+def train(args, MoE,ppo,classifier_chief, classifier_giga,FusionHisF,gigapath_model, memory,train_loader, validation_loader, test_loader=None, wandb=None):
     
     run_name = f"{args.csv.split('/')[-1].split('.')[0]}"
     save_dir = os.path.join(args.save_dir, run_name)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    label_list = []
-    Y_prob_list = []
-    giga_label_list = []
-    giga_Y_prob_list = []
 
     optimizer_chief = torch.optim.Adam(list(classifier_chief.parameters()),lr=1e-4, weight_decay=1e-5)
     optimizer_giga = torch.optim.Adam(list(classifier_giga.parameters()),lr=1e-4, weight_decay=1e-5)
@@ -258,23 +298,25 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
 
     none_epoch = 0
     best_auc = 0
+
     
     for idx, epoch in enumerate(range(args.num_epochs)):
-        
         classifier_chief.train()
         classifier_giga.train()
-        
+        chief_Y_prob_list = []
+        giga_Y_prob_list = []
+        label_list = []
+        Y_prob_list = []
 
         chief_loss = 0
         giga_loss = 0
-        correct = 0
-        total = 0
-        giga_correct = 0
-        giga_total = 0
 
+        MoE_select_num = 0
+
+        optimizer_chief.zero_grad()
+        optimizer_giga.zero_grad()
         for ide, (coords, chief_data, gigapath_data, label) in enumerate(tqdm(train_loader)):
-            optimizer_chief.zero_grad()
-            optimizer_giga.zero_grad()
+            
             coords = coords.squeeze(dim=3)
             update_coords, update_chief_data, update_gigapath_data, label = coords.to(device), chief_data.to(device), gigapath_data.to(device), label.to(device).long()
 
@@ -282,11 +324,30 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
             gigapath_data = gigapath_data.float()
 
             grouping_instance = grouping(action_size=args.action_size)
-            # CHIEF model replace the basemodel    
-            # whole_chief = update_chief_data.detach().squeeze(0)                                   
-            # memory.merge_msg_states.append(cheif_wsi_embedding(chief_model, whole_chief)) 
+
+            whole_chief = update_chief_data.detach().squeeze(0)
+            chief_wsi = chief_wsi_embedding(chief_model, whole_chief)
             whole_gigapath = update_gigapath_data.detach()
-            memory.merge_msg_states.append(gigapath_wsi_embedding(gigapath_model, whole_gigapath, update_coords).to(device))  
+            gigapath_wsi = gigapath_wsi_embedding(gigapath_model, whole_gigapath, update_coords).to(device)
+            patch_num = update_coords.size(1) / 16000 # Normalization
+            patch_feat_tensor = torch.tensor([[patch_num]], dtype=torch.float32).to(device)  # shape [1, 1]
+
+            # concate MoE state
+            expert_state = torch.cat([chief_wsi, gigapath_wsi], dim=-1) 
+            expert_state = torch.cat([expert_state, patch_feat_tensor], dim=-1)
+            memory.expert_states.append(expert_state)
+            # MoE
+            expert_select = MoE.select_action(
+                None, memory, restart_batch=True, training=True
+            )
+
+            # agent state
+            if expert_select == 0:                
+                agent_state = chief_wsi
+            elif expert_select == 1:
+                agent_state = gigapath_wsi
+                MoE_select_num += 1
+            memory.merge_msg_states.append(agent_state)  
 
             _ = ppo.select_action(
                 None, memory, restart_batch=True, training=True
@@ -308,7 +369,7 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
             memory.select_gigapath_feature_pool.append(gigapath_features_group)
 
             # 最終分類（WSI level）
-            wsi_embedding_chief = cheif_wsi_embedding(chief_model, torch.cat(memory.select_chief_feature_pool, dim=0))
+            wsi_embedding_chief = chief_wsi_embedding(chief_model, torch.cat(memory.select_chief_feature_pool, dim=0))
             wsi_embedding_gigapath = gigapath_wsi_embedding(gigapath_model, torch.cat(memory.select_gigapath_feature_pool, dim=1), torch.cat(memory.coords_actions, dim=1))
             
             # chief
@@ -321,8 +382,7 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
             # record loss
             chief_loss += loss.item()
             
-            pred = torch.argmax(output, dim=1)
-            probs = F.softmax(output, dim=1)
+            probs_chief = F.softmax(output, dim=1)
             
             # gigapath
             optimizer_giga.zero_grad()
@@ -334,38 +394,46 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
             # record loss
             giga_loss += loss_giga.item()
 
-            pred_giga = torch.argmax(output_giga, dim=1)
             probs_giga = F.softmax(output_giga, dim=1)
 
-            values = torch.stack([probs[0][label.item()].detach(), probs_giga[0][label.item()].detach()])
+            values = torch.stack([probs_chief[0][label.item()].detach(), probs_giga[0][label.item()].detach()])
             memory.rewards.append((values.mean() - values.var(unbiased=False)).unsqueeze(0))
             record_reward = memory.rewards[-1]
             if (ide+1) % 64 == 0 or ide == len(train_loader)-1:
                 memory.actions.insert(0, -1)
                 memory.logprobs.insert(0, -1)
                 ppo.update(memory)
+                memory.expert_select_actions.insert(0, -1)
+                memory.expert_select_logprobs.insert(0, -1)
+                # gigapath
+                # optimizer_giga.step()
+                # optimizer_chief.zero_grad()
+                # chief
+                # optimizer_chief.step()
+                # optimizer_giga.zero_grad()
+                MoE.update(memory)
                 memory.clear_memory()
 
             wandb.log({
                 "reward": record_reward,
-                "probability/chief_true_label": probs[0][label.item()].detach(), 
-                "probability/chief_false_label": probs[0][1 - label.item()].detach(), 
+                "reward_mean": values.mean().item(),
+                "reward_var": values.var(unbiased=False).item(),
+                "probability/chief_true_label": probs_chief[0][label.item()].detach(), 
+                "probability/chief_false_label": probs_chief[0][1 - label.item()].detach(), 
                 "probability/gigapath_true_label": probs_giga[0][label.item()].detach(), 
                 "probability/gigapath_false_label": probs_giga[0][1 - label.item()].detach(),
             })
 
-            # 計算正確率 chief
-            correct += (pred_giga == label).sum().item()
-            total += label.size(0)
+            # ensemble
+            ensemble_probs = (probs_chief + probs_giga) / 2
+            Y_prob_list.append(ensemble_probs)
             label_list.append(label)
-            Y_prob_list.append(probs_giga)
+
+            # chief
+            chief_Y_prob_list.append(probs_chief)
 
             # gigapath
-            giga_correct += (pred_giga == label).sum().item()
-            giga_total += label.size(0)
-            giga_label_list.append(label)
             giga_Y_prob_list.append(probs_giga)
-
             
             memory.clear_memory_training()
 
@@ -374,7 +442,6 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
         precision, recall, f1, auc, accuracy = calculate_metrics(targets, probs)
 
         memory.clear_memory()
-        #print(f'[Epoch {epoch+1}/{args.num_epochs}] train Loss: {epoch_loss:.4f}, train Accuracy: {accuracy:.4f}, train Precision: {precision:.4f},train Recall: {recall:.4f},train F1 Score: {f1:.4f},train AUC: {auc:.4f}')
         
         wandb.log({
             f"classifier_chief_loss": chief_loss/len(train_loader),
@@ -387,6 +454,8 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
 
         wandb.log({
             "epoch": epoch,
+            "MoE_select_chief": len(train_loader)-MoE_select_num,
+            "MoE_select_gigapath": MoE_select_num,
             "train/precision": precision,
             "train/recall": recall,
             "train/f1": f1,
@@ -394,10 +463,23 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
             "train/acc": accuracy
         })
 
-        targets = np.asarray(torch.cat(giga_label_list, dim=0).detach().cpu().numpy()).reshape(-1)
+        # chief record
+        targets = np.asarray(torch.cat(label_list, dim=0).detach().cpu().numpy()).reshape(-1)
+        probs = np.asarray(torch.cat(chief_Y_prob_list, dim=0).detach().cpu().numpy())
+        precision, recall, f1, auc, accuracy = calculate_metrics(targets, probs)
+        wandb.log({
+            "epoch": epoch,
+            "train_chief/precision": precision,
+            "train_chief/recall": recall,
+            "train_chief/f1": f1,
+            "train_chief/auc": auc,
+            "train_chief/acc": accuracy
+        })
+
+        # gigapath record
+        targets = np.asarray(torch.cat(label_list, dim=0).detach().cpu().numpy()).reshape(-1)
         probs = np.asarray(torch.cat(giga_Y_prob_list, dim=0).detach().cpu().numpy())
         precision, recall, f1, auc, accuracy = calculate_metrics(targets, probs)
-
         wandb.log({
             "epoch": epoch,
             "train_giga/precision": precision,
@@ -407,9 +489,8 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
             "train_giga/acc": accuracy
         })
 
-        #acc = correct / total
-        #print(f"[Epoch {epoch+1}/{args.num_epochs}] Loss: {epoch_loss:.4f}, Accuracy: {acc:.4f}")
-        precision, recall, f1, val_auc, val_accuracy = test(args,basedmodel,ppo,classifier_chief,FusionHisF,memory,validation_loader, chief_model, "val", epoch)
+        # val
+        precision, recall, f1, val_auc, val_accuracy = test(args,MoE,ppo,classifier_chief, classifier_giga,memory,test_loader, chief_model, gigapath_model, run_type="val", epoch=epoch, wandb=wandb)
         wandb.log({
             "val/precision": precision,
             "val/recall": recall,
@@ -417,7 +498,9 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
             "val/auc": val_auc,
             "val/acc": val_accuracy
         })
-        precision, recall, f1, auc, accuracy = test(args,basedmodel,ppo,classifier_chief,FusionHisF,memory,test_loader, chief_model, "test", epoch)
+
+        # test
+        precision, recall, f1, auc, accuracy = test(args,MoE,ppo,classifier_chief, classifier_giga,memory,test_loader, chief_model, gigapath_model, run_type="test", epoch=epoch, wandb=wandb)
         wandb.log({
             "test/precision": precision,
             "test/recall": recall,
@@ -425,6 +508,7 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
             "test/auc": auc,
             "test/acc": accuracy
         })
+        
         if val_auc >= best_auc:
             best_auc = val_auc
             # save model
@@ -442,7 +526,7 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
 
 def train_baseline(args,basedmodel,ppo,classifymodel,FusionHisF,memory_space,train_loader, validation_loader, test_loader=None):
     run_name = f"run_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    wandb.login(key="")
+    wandb.login(key="6c2e984aee5341ab06b1d26cefdb654ffea09bc7")
     wandb.init(
         project="WSI_baseline",      # 可以在網站上看到
         name=run_name,      # optional，可用於區分實驗
@@ -628,5 +712,3 @@ class grouping:
             updated_coords = update_coords[:, chief_mask, :]
             memory.coords_actions.append(action_group)
             return chief_features_group, gigapath_features_group, updated_coords, updated_chief_features, updated_gigapath_features ,memory
-
-    

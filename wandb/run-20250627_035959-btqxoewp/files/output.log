@@ -1,0 +1,28 @@
+dilated_ratio:  [1, 2, 4, 8, 16]
+segment_length:  [1024, 5792, 32768, 185363, 1048576]
+Number of trainable LongNet parameters:  85148160
+Global Pooling: False
+slide_encoder.pth: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 345M/345M [00:32<00:00, 10.7MB/s]
+[92m Successfully Loaded Pretrained GigaPath model from hf_hub:prov-gigapath/prov-gigapath [00m
+[768, 512, 256]
+  0%|                                                                                                                                                                                            | 0/518 [00:00<?, ?it/s]
+Traceback (most recent call last):
+  File "/work/PAMIL_two_round/train.py", line 88, in <module>
+    main(args)
+  File "/work/PAMIL_two_round/train.py", line 81, in main
+    train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF, gigapath_model, memory,train_dataloader, validation_dataloader, test_dataloader, wandb)
+  File "/work/PAMIL_two_round/utilmodule/core.py", line 298, in train
+    _ = ppo.select_action(
+  File "/work/PAMIL_two_round/models/DPSF.py", line 232, in select_action
+    return self.policy_old.act(data, memory, restart_batch, training)
+  File "/work/PAMIL_two_round/models/DPSF.py", line 164, in act
+    action_mean = self.actor(state_ini)  # shape: [B, action_size]
+  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1501, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/container.py", line 217, in forward
+    input = module(input)
+  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1501, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/linear.py", line 114, in forward
+    return F.linear(input, self.weight, self.bias)
+RuntimeError: Expected all tensors to be on the same device, but found at least two devices, cuda:0 and cpu! (when checking argument for argument mat1 in method wrapper_CUDA_addmm)

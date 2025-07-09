@@ -1,0 +1,32 @@
+dilated_ratio:  [1, 2, 4, 8, 16]
+segment_length:  [1024, 5792, 32768, 185363, 1048576]
+Number of trainable LongNet parameters:  85148160
+Global Pooling: False
+slide_encoder.pth: 100%|█████████████████████████████████████████████████████████████████████████| 345M/345M [00:33<00:00, 10.3MB/s]
+[92m Successfully Loaded Pretrained GigaPath model from hf_hub:prov-gigapath/prov-gigapath [00m
+[768, 512, 256]
+  0%|▏                                                                                              | 1/518 [00:00<01:27,  5.89it/s]
+Clipped grad norm: nan
+🚨 NaN detected in action_mean during evaluate()
+Clipped grad norm: nan
+🚨 NaN detected in action_mean during evaluate()
+Clipped grad norm: nan
+Traceback (most recent call last):
+  File "/work/PAMIL_two_round/train.py", line 88, in <module>
+    main(args)
+  File "/work/PAMIL_two_round/train.py", line 81, in main
+    train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF, gigapath_model, memory,train_dataloader, validation_dataloader, test_dataloader, wandb)
+  File "/work/PAMIL_two_round/utilmodule/core.py", line 299, in train
+    _ = ppo.select_action(
+  File "/work/PAMIL_GIGAPATH_CHIEF/models/DPSF.py", line 207, in select_action
+    return self.policy_old.act(data, memory, restart_batch, training)
+  File "/work/PAMIL_GIGAPATH_CHIEF/models/DPSF.py", line 145, in act
+    dist = torch.distributions.multivariate_normal.MultivariateNormal(action_mean, scale_tril=cov_mat)
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributions/multivariate_normal.py", line 150, in __init__
+    super().__init__(batch_shape, event_shape, validate_args=validate_args)
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributions/distribution.py", line 62, in __init__
+    raise ValueError(
+ValueError: Expected parameter loc (Tensor of shape (1, 30)) of distribution MultivariateNormal(loc: torch.Size([1, 30]), scale_tril: torch.Size([1, 30, 30])) to satisfy the constraint IndependentConstraint(Real(), 1), but found invalid values:
+tensor([[nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, nan,
+         nan, nan, nan, nan, nan, nan]], device='cuda:0',
+       grad_fn=<ExpandBackward0>)
