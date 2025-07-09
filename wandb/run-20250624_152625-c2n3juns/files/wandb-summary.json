@@ -1,1 +1,0 @@
-{"reward":0.6018804311752319,"_wandb":{"runtime":90},"train/auc":0.5558488427582916,"train/f1":0.5683453237410072,"classifier_chief_loss":357.2967361211777,"classifier_giga_loss":400.8610291108489,"_runtime":83.075345173,"train/precision":0.541095890410959,"train/recall":0.5984848484848485,"_timestamp":1.7507788684230497e+09,"train/acc":0.5366795366795367,"epoch":0,"_step":520}
