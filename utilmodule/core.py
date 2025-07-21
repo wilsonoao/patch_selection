@@ -490,7 +490,7 @@ def train(args, MoE,ppo,classifier_chief, classifier_giga,FusionHisF,gigapath_mo
         })
 
         # val
-        precision, recall, f1, val_auc, val_accuracy = test(args,MoE,ppo,classifier_chief, classifier_giga,memory,test_loader, chief_model, gigapath_model, run_type="val", epoch=epoch, wandb=wandb)
+        precision, recall, f1, val_auc, val_accuracy = test(args,MoE,ppo,classifier_chief, classifier_giga,memory,validation_loader, chief_model, gigapath_model, run_type="val", epoch=epoch, wandb=wandb)
         wandb.log({
             "val/precision": precision,
             "val/recall": recall,
