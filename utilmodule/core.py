@@ -257,8 +257,6 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
     for idx, epoch in enumerate(range(args.num_epochs)):
         classifier_chief.train()
         classifier_giga.train()
-        classifier_chief.train()
-        classifier_giga.train()
 
         chief_loss = 0
         giga_loss = 0
@@ -410,7 +408,7 @@ def train(args,basedmodel,ppo,classifier_chief, classifier_giga,FusionHisF,gigap
         })
 
         # val
-        precision, recall, f1, val_auc, val_accuracy = test(args,ppo,classifier_chief, classifier_giga,memory,test_loader, chief_model, gigapath_model, run_type="val", epoch=epoch)
+        precision, recall, f1, val_auc, val_accuracy = test(args,ppo,classifier_chief, classifier_giga,memory,validation_loader, chief_model, gigapath_model, run_type="val", epoch=epoch)
         wandb.log({
             "val/precision": precision,
             "val/recall": recall,
