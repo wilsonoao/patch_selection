@@ -1,6 +1,0 @@
-Traceback (most recent call last):
-  File "/work/PAMIL_two_round/train.py", line 86, in <module>
-    main(args)
-  File "/work/PAMIL_two_round/train.py", line 75, in main
-    gigapath_model = slide_encoder.create_model("hf_hub:prov-gigapath/prov-gigapath", "gigapath_slide_enc12l768d", 1536).to(device)
-NameError: name 'slide_encoder' is not defined

@@ -37,7 +37,7 @@ class h5file_Dataset(Dataset):
         chief_features = torch.load(chief_feature_path)
         gigapath_features = torch.load(gigapath_feature_path)
         label = self.csv_file.iloc[index, self.csv_index[1]]
-        return coords, chief_features, gigapath_features, label
+        return coords, chief_features, gigapath_features, label, self.csv_file.iloc[index, self.csv_index[0]]
 
 
  

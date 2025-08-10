@@ -6,9 +6,9 @@ import os
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from PAMIL_two_round.models.DPSF import PPO,Memory
-from PAMIL_two_round.models.MoE_agent import MoE_agent
-from PAMIL_two_round.utilmodule.utils import make_parse
+from PAMIL_hard_state_rewardChange_relative.models.DPSF import PPO,Memory
+from PAMIL_hard_state_rewardChange_relative.models.MoE_agent import MoE_agent
+from PAMIL_hard_state_rewardChange_relative.utilmodule.utils import make_parse
 import torch
 
 

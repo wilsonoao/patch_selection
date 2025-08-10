@@ -22,11 +22,12 @@ def make_parse():
     parser = argparse.ArgumentParser()
     parser.add_argument('--type', default='tcga',type=str)  
     parser.add_argument('--mode', default='rlselect',type=str)
-    parser.add_argument('--seed', default=2021,type=int)
+    parser.add_argument('--seed', default=42,type=int)
     parser.add_argument('--num_epochs', default=300,type=int)
     parser.add_argument('--lr', default=0.00001,type=int)
-    
+    parser.add_argument('--Exploration_beta', default=0.05,type=float)
 
+    
     parser.add_argument('--in_chans', default=1024,type=int)
   
     parser.add_argument('--embed_dim', default=768,type=int)
@@ -58,7 +59,7 @@ def make_parse():
     parser.add_argument('--policy_conv', action='store_true', default=False)
     parser.add_argument('--action_std', type=float, default=0.5)
     parser.add_argument('--ppo_lr', type=float, default=0.00001)
-    parser.add_argument('--ppo_gamma', type=float, default=0.1)
+    parser.add_argument('--ppo_gamma', type=float, default=1)
     parser.add_argument('--K_epochs', type=int, default=3)
     
     parser.add_argument('--test_total_T', type=int, default=3)

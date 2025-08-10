@@ -6,6 +6,7 @@ import numpy as np
 from einops import rearrange
 import torch.nn as nn
 import os
+from collections import defaultdict
         
 class Memory:
     def __init__(self):
@@ -15,10 +16,14 @@ class Memory:
         self.logprobs = [] 
         
         self.rewards = []
+        self.moe_rewards = []
         self.is_terminals = []
         self.hidden = []
         self.select_chief_feature_pool = []
         self.select_gigapath_feature_pool = []
+        self.expert_all_probs = []
+        device = torch.device("cuda")
+        self.last_performance = defaultdict(lambda: torch.zeros(1, device=device))
         
         #state
         # self.origin_states = []  
@@ -41,6 +46,8 @@ class Memory:
         del self.select_chief_feature_pool[:]
         del self.select_gigapath_feature_pool[:]
         
+        
+        del self.moe_rewards[:]
         del self.rewards[:]
         del self.is_terminals[:]
         del self.hidden[:]
@@ -53,6 +60,7 @@ class Memory:
         del self.expert_select_logprobs[:]
         del self.expert_select_actions[:]
         del self.expert_states[:]
+        del self.expert_all_probs[:]
         
         del self.results_dict[:]
     
@@ -76,8 +84,7 @@ class Memory:
         
         
         del self.results_dict[:]
-
-
+        
 
 class ActorCritic(nn.Module):
     def __init__(self, feature_dim, state_dim, device, hidden_state_dim=1024, policy_conv=False, action_std=0.1, action_size=2):
@@ -111,17 +118,10 @@ class ActorCritic(nn.Module):
     
         
     def act(self, current_state, memory, restart_batch=False, training=False):
-        # state_ini = memory.merge_msg_states[-1].detach()
-        # if restart_batch:
-        #     del memory.hidden[:]
-        #     memory.hidden.append(torch.zeros(1, state_ini.size(0), self.hidden_state_dim).cuda())
-        # msg_state, hidden_output = self.gru(state_ini.view(1, state_ini.size(0), state_ini.size(-1)), memory.hidden[-1])  
-        # memory.hidden.append(hidden_output) 
-        # action_mean = self.actor(msg_state[0]) 
+        
         state_ini = memory.merge_msg_states[-1].detach()  # shape: [B, state_dim]
         state_ini = state_ini.squeeze(1)
         action_mean = self.actor(state_ini)  # shape: [B, action_size]
-        
 
         cov_mat = torch.diag(self.action_var).cuda() 
         dist = torch.distributions.MultivariateNormal(action_mean, scale_tril=cov_mat)
@@ -140,12 +140,6 @@ class ActorCritic(nn.Module):
     
 
     def evaluate(self, state, action):
-        # seq_l = state.size(0) 
-        # batch_size = state.size(1)
-        # state = state.view(seq_l, batch_size, -1)
-
-        # state, hidden = self.gru(state, torch.zeros(1, batch_size, state.size(2)).cuda()) 
-        # state = state.view(seq_l * batch_size, -1) 
         
         seq_l, batch_size, state_dim = state.shape
         state = state.squeeze(1)
@@ -158,9 +152,6 @@ class ActorCritic(nn.Module):
         action_logprobs = dist.log_prob(torch.squeeze(action.view(seq_l * batch_size, -1))).cuda()
         dist_entropy = dist.entropy().cuda() 
         state_value = self.critic(state)
-        # print(action_logprobs.shape)
-        # print(state_value.shape)
-        # print(dist_entropy.shape)
 
         return action_logprobs.view(seq_l, batch_size), \
                state_value.view(seq_l, batch_size), \
@@ -208,15 +199,13 @@ class PPO:
         discounted_reward = 0
 
         for reward in reversed(memory.rewards):
-            discounted_reward = reward.detach() + (self.gamma * discounted_reward)
+            discounted_reward = reward.detach()
             rewards.insert(0, discounted_reward)
 
         rewards = torch.cat(rewards, 0).cuda()
-        rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
+        # rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
 
         old_msg_states = torch.stack(memory.merge_msg_states, 0).cuda().detach() 
-
-
 
         old_actions = torch.stack(memory.actions[1:], 0).cuda().detach() 
         old_logprobs = torch.stack(memory.logprobs[1:], 0).cuda().detach() 
@@ -230,13 +219,15 @@ class PPO:
             surr1 = ratios * advantages
             surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages
 
-            loss = -torch.min(surr1, surr2) + 0.5 * self.MseLoss(state_values, rewards) - 0.01 * dist_entropy
+            loss = -torch.min(surr1, surr2) + 0.5 * self.MseLoss(state_values, rewards)
 
             self.optimizer.zero_grad()
             loss.mean().backward()
             self.optimizer.step()
 
         self.policy_old.load_state_dict(self.policy.state_dict())
+    
+        return -torch.min(surr1, surr2).mean().item(), self.MseLoss(state_values, rewards).mean().item(), loss.mean().item()
 
     def save(self, save_dir):
         torch.save(self.policy_old.state_dict(), os.path.join(save_dir, "ppo.pth"))

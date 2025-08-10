@@ -1,1 +1,0 @@
-{"_timestamp":1.7512658294427004e+09,"_step":40,"probability/gigapath_true_label":0.7024381756782532,"_wandb":{"runtime":120},"_runtime":120.497587638,"probability/gigapath_false_label":0.2975618541240692,"reward":0.558714747428894,"probability/chief_true_label":0.44749054312705994,"probability/chief_false_label":0.5525094866752625}

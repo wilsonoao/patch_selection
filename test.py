@@ -21,7 +21,7 @@ def main(args):
     seed_torch(2021)
     res_list = []
     
-    basedmodel,ppo,_,memory,FusionHisF = create_model(args)
+    basedmodel,ppo,_,memory,FusionHisF, MoE = create_model(args)
     data_csv_dir = args.csv
     chief_feature_dir = args.chief_feature_dir
     gigapath_feature_dir = args.gigapath_feature_dir
@@ -31,6 +31,9 @@ def main(args):
 
     ppo_weight = torch.load(os.path.join(args.test_dir, 'ppo.pth'), map_location=device)
     ppo.policy.load_state_dict(ppo_weight)
+
+    MoE_weight = torch.load(os.path.join(args.test_dir, 'MoE.pth'), map_location=device)
+    MoE.policy.load_state_dict(MoE_weight)
     
     classifier_chief = TwoLayerClassifier().to(device)
     classifier_chief_weight = torch.load(os.path.join(args.test_dir, 'classifier_chief.pth'), map_location=device)
@@ -58,11 +61,7 @@ def main(args):
     classifier_giga.eval()
     ppo.policy.eval()
     
-    # print("val")
-    # precision, recall, f1, auc, accuracy = test(args,basedmodel,ppo,classifymodel,FusionHisF,memory,val_dataloader )
-
-    # print("test")
-    precision, recall, f1, auc, accuracy = test(args,ppo,classifier_chief, classifier_giga,memory,test_dataloader, chief_model, gigapath_model, "test", epoch=0, wandb=None, run_time_test=False, record_csv=True)
+    precision, recall, f1, auc, accuracy = test(args, MoE, ppo,classifier_chief, classifier_giga,memory,test_dataloader, chief_model, gigapath_model, "test", epoch=0, wandb=None, run_time_test=False, record_csv=True)
     
 
 
