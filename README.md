@@ -4,4 +4,7 @@
 --chief_feature_dir "Chief feature dir" \
 --gigapath_feature_dir "Gigapath feature dir" \
 --save_dir "存Model的dir" \
---action_size "決定要選多少patch"
+--action_size "決定要選多少patch" \
+
+環境使用Gigapath官網提供的
+
