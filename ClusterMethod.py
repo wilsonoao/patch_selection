@@ -4,7 +4,7 @@ import sys
 # from gigapath import slide_encoder
 # from gigapath.pipeline import run_inference_with_slide_encoder
 from huggingface_hub import login
-login("")
+login("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")
  
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -56,13 +56,13 @@ def main(args):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    classifier_chief = RewardMLP(input_dim=768, hidden_dim=1024, use_bn=False, p_dropout=0.1).to(device)
+    classifier_chief = RewardMLP(input_dim=768, hidden_dim=1024, use_bn=False, p_dropout=None).to(device)
     classifier_chief.apply(init_weights)
 
     classifier_giga = TwoLayerClassifier().to(device)
     classifier_giga.apply(init_weights)
 
-    chief_rewardModels = RewardMLP(input_dim=768, hidden_dim=1024, use_bn=False, p_dropout=0.1).to(device)
+    chief_rewardModels = RewardMLP(input_dim=768, hidden_dim=1024, use_bn=False, p_dropout=None).to(device)
     gigapath_rewardModels = [RewardMLP(input_dim=1024, hidden_dim=1024, use_bn=False, p_dropout=0.5).to(device), RewardMLP(input_dim=768, hidden_dim=512, use_bn=False, p_dropout=0.3).to(device)]
 
     train_dataset = h5file_Dataset(data_csv_dir,h5file_dir,chief_feature_dir, gigapath_feature_dir,'train')
@@ -77,10 +77,10 @@ def main(args):
     run_name = f"{args.csv.split('/')[-1].split('.')[0]}"
     save_dir = os.path.join(args.save_dir, run_name)
     os.makedirs(save_dir, exist_ok=True)
-    wandb.login(key="")
+    wandb.login(key="6c2e984aee5341ab06b1d26cefdb654ffea09bc7")
     wandb.init(
         project=args.csv.split('/')[-3]+"_SingleCHIEF_NoisetwoModel_RNNagent"+args.save_dir.split("/")[-1],      # 可以在網站上看到
-        name=run_name+"_reward_calibrationMCDCP",      # optional，可用於區分實驗
+        name=run_name+"_intermediate",      # optional，可用於區分實驗
         config=vars(args)                    # optional，紀錄一些超參數
     )
 

@@ -1,195 +1,153 @@
-import torchmetrics
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
-import copy
 from utilmodule.utils import calculate_metrics
+from NoisetwoModel_group_rewardCalibration_MCDCP.models.DPSF import PPO,Memory
+from NoisetwoModel_group_rewardCalibration_MCDCP.models.classifier import TwoLayerClassifier
+import pickle
+import random
 
 import numpy as np
 import pandas as pd
 from sklearn.cluster import KMeans
-import time
-import random
 from tqdm import tqdm
 import torch.nn.functional as F
-import torch.optim as optim
-import wandb
-import datetime
 import os
 from tqdm import tqdm
 from models.CHIEF import CHIEF
 from CHIEF_network import ClfNet
-from gigapath.pipeline import run_inference_with_slide_encoder
+from sklearn.metrics import roc_auc_score
+from torch.utils.data import DataLoader
+import torch.optim as optim
 
-def log_patch_ids_to_wandb(epoch, sample_names, patch_ids, wandb=None):
-    """
-    將 sample_names 和 patch_ids 排序後 log 到 wandb table。
-    - sample_names: list of str，樣本名稱
-    - patch_ids: list of list，每個樣本對應的 patch ID 列表
-    """
-
-    # 先將 sample_names 和 patch_ids 打包成 tuple，再依 name 排序
-    zipped = list(zip(sample_names, patch_ids))
-    zipped.sort(key=lambda x: x[0])  # 依照 sample_names 排序
-
-    # 建立 table
-    table = wandb.Table(columns=["epoch", "sample_name", "sorted_patch_ids"])
-
-    for name, patches in zipped:
-        sorted_patches = sorted(patches)  # 對每個 sample 的 patch ids 排序
-        table.add_data(epoch, name, str(sorted_patches))  # 可轉為 json 或 str
-
-    # log 到 wandb（每個 epoch 一個 table）
-    if wandb:
-        wandb.log({f"patch_selection/epoch_{epoch}": table})
-
-
-
-def get_aux_coeff(epoch, warmup_epochs=20, start_coeff=0.0, end_coeff=1.0, mode='increase'):
-
-    ratio = min(epoch / warmup_epochs, 1.0)
-    
-    if mode == 'increase':
-        return start_coeff + ratio * (end_coeff - start_coeff)
-    elif mode == 'decrease':
-        return start_coeff - ratio * (start_coeff - end_coeff)
-    else:
-        raise ValueError(f"Unknown mode: {mode}. Use 'increase' or 'decrease'.")
-
-
-def test(args,MoE, ppo,classifier_chief, classifier_giga,memory,test_loader, chief_model, gigapath_model, run_type="test", epoch=0, wandb=None, run_time_test=True, record_csv=False):
+def test(args,ppo_chief,classifier_chief,chief_memory, cluster_list, test_loader, chief_model, run_type="test", epoch=0, wandb=None, run_time_test=True, record_csv=False):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    classifier_chief.eval()
-    classifier_giga.eval()
-    
-
+    num_classifiers = len(classifier_chief)
     with torch.no_grad():
         label_list = []
-        Y_prob_list = []
+        sample_names = []
         chief_Y_prob_list = []
-        giga_Y_prob_list = []
-        for idx, (coords, chief_data, gigapath_data, label, _) in enumerate (tqdm(test_loader)):
+        loss_classifier = [0 for _ in range(num_classifiers)]
 
+        for idx, (coords, chief_data, gigapath_data, label, name) in enumerate (tqdm(test_loader)):
+            sample_names.append(name[0])
             coords = coords.squeeze(dim=3)
-            update_coords, update_chief_data, update_gigapath_data, label = coords.to(device), chief_data.to(device), gigapath_data.to(device), label.to(device).long()
-            # 預處理
-            chief_data = chief_data.float()
-            gigapath_data = gigapath_data.float()
+            
+            update_chief_coords, update_chief_data, label = coords.to(device), chief_data.squeeze(0).to(device), label.to(device).long()
+            patch_num = update_chief_data.size(1)
+            
+            centers, groups = cluster_list[name[0]]["centers"], cluster_list[name[0]]["groups"]
 
-            grouping_instance = grouping(action_size=args.action_size)
+            for center, feature_group in zip(centers, groups):
+                select_and_embed_chief_patches(
+                    ppo_chief=ppo_chief,
+                    chief_memory=chief_memory,
+                    center=center.unsqueeze(0),
+                    Now_picked_num=len(chief_memory.select_chief_feature_pool),
+                    Total_picked_num=len(centers),
+                    feature_group=feature_group,
+                )
 
-            whole_chief = update_chief_data.detach().squeeze(0)
-            chief_wsi = chief_wsi_embedding(chief_model, whole_chief)
-            whole_gigapath = update_gigapath_data.detach()
-            gigapath_wsi = gigapath_wsi_embedding(gigapath_model, whole_gigapath, update_coords).to(device)
-            patch_num = update_coords.size(1) / 16000 # Normalization
-            patch_feat_tensor = torch.tensor([[patch_num]], dtype=torch.float32).to(device)  # shape [1, 1]
-
-            # concate MoE state
-            expert_state = torch.cat([chief_wsi, gigapath_wsi], dim=-1) 
-            expert_state = torch.cat([expert_state, patch_feat_tensor], dim=-1)
-            memory.expert_states.append(expert_state)
-            # MoE
-            expert_select = MoE.select_action(
-                None, memory, restart_batch=True, training=False
-            )
-
-            # agent state
-            if expert_select == 0:                
-                agent_state = chief_wsi
-            elif expert_select == 1:
-                agent_state = gigapath_wsi
-            memory.merge_msg_states.append(agent_state) 
-
-            _ = ppo.select_action(
-                None, memory, restart_batch=True, training=False
-            )
-
-            action_index_pro, memory = grouping_instance.rlselectindex_grouping(
-                ppo, memory, update_coords, sigma=0.02, restart=False
-            )
-
-            _, chief_features_group, gigapath_features_group, update_coords, update_chief_data, update_gigapath_data, memory = grouping_instance.action_make_subbags(
-                ppo, memory, action_index_pro, update_coords, update_chief_data, update_gigapath_data,
-                action_size=args.action_size, restart=False, delete_begin=True
-            )
-
-            chief_features_group = chief_features_group[0].squeeze(0) 
-            memory.select_chief_feature_pool.append(chief_features_group)                                             
-
-            gigapath_features_group = gigapath_features_group[0].unsqueeze(0)
-            memory.select_gigapath_feature_pool.append(gigapath_features_group)
 
             # 最終分類（WSI level）
-            wsi_embedding_chief = chief_wsi_embedding(chief_model, torch.cat(memory.select_chief_feature_pool, dim=0))
-            wsi_embedding_gigapath = gigapath_wsi_embedding(gigapath_model, torch.cat(memory.select_gigapath_feature_pool, dim=1), torch.cat(memory.coords_actions, dim=1))
-            
-            chief_output = classifier_chief(wsi_embedding_chief)
-            probs_chief = F.softmax(chief_output, dim=1)
-            chief_Y_prob_list.append(probs_chief)
-            
-            # gigapath
-            output_giga = classifier_giga(wsi_embedding_gigapath.to(device))
-            probs_giga = F.softmax(output_giga, dim=1)
-            giga_Y_prob_list.append(probs_giga)
+            if len(chief_memory.select_chief_feature_pool) == 0:
+                # 若沒有任何被選到的 feature，就建立一個 [1, 768] 的 0 tensor
+                wsi_embedding_chief = torch.zeros((1, 768), device=device)
+            else:
+                wsi_embedding_chief = chief_wsi_embedding(
+                    chief_model,
+                    torch.cat(chief_memory.select_chief_feature_pool, dim=0).to(device)
+                ).detach()
+            # wsi_embedding_gigapath = gigapath_wsi_embedding(gigapath_model, torch.cat(gigapath_memory.select_gigapath_feature_pool, dim=1), torch.cat(gigapath_memory.coords_actions, dim=1))
+
+
+            ensemble_pros = torch.zeros((1, 2), dtype=torch.float, device=device)
+            for i, chief_classifier in enumerate(classifier_chief):
+
+                # forward
+                chief_output = chief_classifier(wsi_embedding_chief)  # [1,2] 
+
+                # loss
+                loss = F.cross_entropy(chief_output, label.expand(chief_output.size(0)))
+                loss_classifier[i] += loss.item()
+                
+                # prob
+                probs_chief = F.softmax(chief_output, dim=1)
+                ensemble_pros += probs_chief
+
 
             # ensemble
-            ensemble_probs = (probs_chief + probs_giga) / 2
-            Y_prob_list.append(ensemble_probs)
             label_list.append(label)
-            memory.clear_memory()
+
+            # chief
+            ensemble_pros /= num_classifiers
+            chief_Y_prob_list.append(ensemble_pros)
+
+            # # gigapath
+            # giga_Y_prob_list.append(probs_giga)
+
+            chief_memory.clear_memory()
 
         if run_time_test:
             # chief record
             targets = np.asarray(torch.cat(label_list, dim=0).detach().cpu().numpy()).reshape(-1)
             probs = np.asarray(torch.cat(chief_Y_prob_list, dim=0).detach().cpu().numpy())
-            precision, recall, f1, auc, accuracy = calculate_metrics(targets, probs)
-            if wandb:
+            precision, recall, f1, chief_auc, accuracy = calculate_metrics(targets, probs)
+            wandb.log({
+                f"{run_type}_chief/precision": precision,
+                f"{run_type}_chief/recall": recall,
+                f"{run_type}_chief/f1": f1,
+                f"{run_type}_chief/auc": chief_auc,
+                f"{run_type}_chief/acc": accuracy,
+            })
+
+            for i in range(num_classifiers):
                 wandb.log({
-                    f"{run_type}_chief/precision": precision,
-                    f"{run_type}_chief/recall": recall,
-                    f"{run_type}_chief/f1": f1,
-                    f"{run_type}_chief/auc": auc,
-                    f"{run_type}_chief/acc": accuracy
+                    f"{run_type}_chief_classifier_{i}/loss": loss_classifier[i]/len(test_loader),
                 })
 
-            # gigapath record
-            targets = np.asarray(torch.cat(label_list, dim=0).detach().cpu().numpy()).reshape(-1)
-            probs = np.asarray(torch.cat(giga_Y_prob_list, dim=0).detach().cpu().numpy())
-            precision, recall, f1, auc, accuracy = calculate_metrics(targets, probs)
-            if wandb:
-                wandb.log({
-                    f"{run_type}_giga/precision": precision,
-                    f"{run_type}_giga/recall": recall,
-                    f"{run_type}_giga/f1": f1,
-                    f"{run_type}_giga/auc": auc,
-                    f"{run_type}_giga/acc": accuracy
-                })
 
         targets = np.asarray(torch.cat(label_list, dim=0).cpu().numpy()).reshape(-1)  
-        probs = np.asarray(torch.cat(Y_prob_list, dim=0).cpu().numpy())  
-        precision, recall, f1, auc, accuracy = calculate_metrics(targets, probs)
+        probs = np.asarray(torch.cat(chief_Y_prob_list, dim=0).detach().cpu().numpy()) # change now -> CHIEF
         if record_csv:
+            
+            # 預測 label
+            preds = np.argmax(probs, axis=1)
+            correct = (preds == targets).astype(int)
+
+            # 假設 idx_patches 只在 if/else 裡面生成，可以先存到一個 list
+            # 在 loop 外先建一個 list
+            # selected_patch_ids = []
+            # 在每個 iter 裡，把 idx_patches 加進去
+            # selected_patch_ids.append(idx_patches.cpu().numpy())
+
             df = pd.DataFrame({
+                'name': sample_names,
                 'label': targets,
-                'prob': probs[:, 1]
+                'pred': preds,
+                'correct': correct,
+                'prob': probs[:, 1],
             })
             df.to_csv(os.path.join(args.test_dir, args.csv_saveName), index=False)
+            
 
-    return precision, recall, f1, auc, accuracy
+    return chief_auc, torch.cat(label_list, dim=0).cpu(), torch.cat(chief_Y_prob_list, dim=0).detach().cpu()
 
-def test_baseline(args,basedmodel,ppo,classifymodel,FusionHisF,memory_space,test_loader, run_type="test", epoch=0):
+def test_baseline(args,chief_model,classifymodel,FusionHisF,memory_space,test_loader, run_type="test", chose="top"):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     with torch.no_grad():
         label_list = []
         Y_prob_list = []
-        for idx, (coords, data, label) in enumerate (tqdm(test_loader)):
-            update_coords, update_data, label = coords.to(device), data.to(device), label.to(device).long()
-
-            W_logits = classifymodel (update_data).squeeze(1)
+        for idx, (chief_data, label) in enumerate(tqdm(test_loader)):
+            label = label.to(device).long()
+            chief_data = chief_data.to(device)
+            W_logits = classifymodel(chief_data).squeeze(1)
             W_Y_prob = F.softmax(W_logits, dim=1)
             W_Y_hat = torch.argmax(W_Y_prob, dim=1)
 
@@ -199,95 +157,692 @@ def test_baseline(args,basedmodel,ppo,classifymodel,FusionHisF,memory_space,test
         targets = np.asarray(torch.cat(label_list, dim=0).cpu().numpy()).reshape(-1)
         probs = np.asarray(torch.cat(Y_prob_list, dim=0).cpu().numpy())
         precision, recall, f1, auc, accuracy = calculate_metrics(targets, probs)
-        
+        # df = pd.DataFrame({
+        #         'label': targets,
+        #         'prob': probs[:, 1]
+        #     })
+        # df.to_csv(os.path.join(args.test_dir, args.csv_saveName), index=False)
+        #print(f'[Epoch {epoch+1}/{args.num_epochs}] {run_type} Accuracy: {accuracy:.4f} " {run_type} Precision: {precision:.4f}, {run_type} Recall: {recall:.4f}, {run_type} F1 Score: {f1:.4f}, {run_type} AUC: {auc:.4f}')
     return precision, recall, f1, auc, accuracy
 
-def chief_wsi_embedding(chief_model, feature):
-    anatomical=13
-    with torch.no_grad():
-        x,tmp_z = feature,anatomical
-        result = chief_model(x, torch.tensor([tmp_z]))
-        wsi_feature_emb = result['WSI_feature']  ###[1,768]
-        # print(wsi_feature_emb.size())
+def chief_wsi_embedding(chief_model, feature, type="model"):
+
+    if type == "model":
+        anatomical=13
+        with torch.no_grad():
+            x,tmp_z = feature,anatomical
+            result = chief_model(x, torch.tensor([tmp_z]))
+            wsi_feature_emb = result['WSI_feature']  ###[1,768]
+            # print(wsi_feature_emb.size())
+    elif type == "mean-pooling":
+        wsi_feature_emb = feature.mean(dim=0, keepdim=True)
+    elif type == "max-pooling":
+        wsi_feature_emb, _ = feature.max(dim=0, keepdim=True)
 
     return wsi_feature_emb
 
-def gigapath_wsi_embedding(gigapath_model, feature, coords):
-    with torch.no_grad():
-        #wsi_feature_emb = gigapath_model(feature, coords).squeeze()
-        wsi_feature_emb = run_inference_with_slide_encoder(slide_encoder_model=gigapath_model, tile_embeds=feature, coords=coords)
 
-    return wsi_feature_emb['last_layer_embed']
+class GCELoss(nn.Module):
+    def __init__(self, q=0.7):  # q ∈ (0,1], 控制曲線形狀
+        super().__init__()
+        self.q = q
+
+    def forward(self, logits, targets):
+        # logits: [B, C], targets: [B] (LongTensor)
+        probs = F.softmax(logits, dim=1)
+        probs_true = probs[torch.arange(len(targets)), targets]
+        if self.q == 1.0:
+            return -torch.log(probs_true).mean()  # 退化成CE
+        else:
+            return ((1 - probs_true ** self.q) / self.q).mean()
 
 
-def run_no_fusion_state(chief_model, gigapath_model,
-    classifier_chief, classifier_giga, state_wsi,
-    update_coords, update_chief_data, update_gigapath_data,
-    label, args, device,
-    ppo, grouping_instance, memory, name, reward_type="chief"):
+# ===== Mapping function h(·) =====
+class LabelConfidence(nn.Module):
+    def __init__(self, m=0.0, momentum=0.7):
+        super().__init__()
+        self.m = m  # 控制樣本數比例
+        self.momentum = momentum
+        self.register_buffer("mu", torch.tensor(0.0))  # moving average
 
-    # 避免 memory 污染原始值：做 deep copy
-    local_memory = copy.deepcopy(memory)
-    local_memory.merge_msg_states.append(state_wsi)
-    
+    def forward(self, robust_loss_values):
+        # robust_loss_values: [B]
+        # 更新 batch 平均 loss 的 moving average
+        batch_mean = robust_loss_values.mean().detach()
+        self.mu = self.momentum * self.mu + (1 - self.momentum) * batch_mean
+        # 計算 confidence
+        scores = -robust_loss_values + self.mu + self.m
+        return torch.sigmoid(0.5 * scores)  # ∈ (0,1)
 
-    # 選動作
-    _ = ppo.select_action(None, local_memory, restart_batch=True, training=True)
 
-    # 用動作決定哪些 instance 被選進來
-    action_index_pro, local_memory = grouping_instance.rlselectindex_grouping(
-        ppo, local_memory, update_coords, sigma=0.02, restart=False
+# ===== Noise-robust model Loss =====
+def noise_robust_loss(logits, targets, robust_loss_fn):
+    return robust_loss_fn(logits, targets)
+
+
+# ===== Noise-free model Loss =====
+def noise_free_loss(logits, targets, robust_logits, conf_func, robust_loss_fn,
+                    label_correction=True, type="noise", beta_coe=0.5):
+    """
+    logits: noise-free model 輸出 [B, C]
+    targets: ground truth labels [B]
+    robust_logits: noise-robust model 輸出 [B, C]
+    conf_func: LabelConfidence 實例
+    """
+    # 1. robust loss value (per-sample)
+    robust_losses = F.cross_entropy(robust_logits, targets, reduction='none')
+    conf = conf_func(robust_losses).detach()  # label confidence
+
+    # 2. Label correction (after warm-up才開啟)
+    if label_correction:
+        with torch.no_grad():
+            robust_probs = F.softmax(robust_logits, dim=1)
+        y_onehot = F.one_hot(targets, num_classes=logits.size(1)).float()
+        soft_targets = (1 - beta_coe) * y_onehot + beta_coe * robust_probs
+    else:
+        soft_targets = F.one_hot(targets, num_classes=logits.size(1)).float()
+
+    # 3. Cross-entropy with soft labels (confidence 加權)
+    log_probs = F.log_softmax(logits, dim=1)
+    ce_loss = -(soft_targets * log_probs).sum(dim=1)  # [B]
+    if type == "noise":
+        weighted_ce = (conf * ce_loss).mean()
+    elif type == "CE":
+        weighted_ce = F.cross_entropy(logits, targets)
+
+
+    return weighted_ce
+
+
+def train_noise_robust_and_free_models(
+    wsi_embedding_chief,
+    label,
+    chief_noise_robust_model,
+    classifier_chief,
+    optimizer_noise_robust_chief,
+    optimizer_chief,
+    noise_robust_loss,
+    noise_free_loss,
+    robust_loss_fn,
+    conf_func,
+    label_correction,
+    lambda_reg=1e-3,
+    beta_coe=0.5,
+    Q=None,
+):
+    """
+    同步訓練 Noise-Robust 與 Classifier 模型。
+
+    Args:
+        wsi_embedding_chief (Tensor): [B, D] slide-level embedding。
+        label (Tensor): [B] labels。
+        chief_noise_robust_model (nn.Module)
+        classifier_chief (nn.Module)
+        optimizer_noise_robust_chief (torch.optim.Optimizer)
+        optimizer_chief (torch.optim.Optimizer)
+        noise_robust_loss (callable): 計算 robust model loss。
+        noise_free_loss (callable): 計算 free model loss。
+        robust_loss_fn (callable): 基礎 robust loss 函數，如 GCE, NCE。
+        conf_func (callable): confidence function。
+        label_correction (bool): 是否啟用 label 修正。
+        lambda_reg (float): 正則化權重。
+        beta (float): noise-free loss 中的 beta 係數。
+
+    Returns:
+        dict: {
+            "loss_total": total loss tensor,
+            "loss_robust": float,
+            "loss_free": float,
+            "reg_term": float,
+            "probs_robust": Tensor,
+            "probs_free": Tensor
+        }
+    """
+
+    # === Noise-Robust Model ===
+    optimizer_noise_robust_chief.zero_grad()
+    noise_robust_output = chief_noise_robust_model(wsi_embedding_chief)
+    probs_noise_robust = F.softmax(noise_robust_output, dim=1)
+
+    loss_robust = noise_robust_loss(
+        noise_robust_output,
+        label.expand(noise_robust_output.size(0)),
+        robust_loss_fn,
     )
 
-    # 建立新的 subbag
-    _, chief_features_group, gigapath_features_group, update_coords, update_chief_data, update_gigapath_data, local_memory = grouping_instance.action_make_subbags(
-        ppo, local_memory, action_index_pro, update_coords, update_chief_data, update_gigapath_data,
-        action_size=args.action_size, restart=False, delete_begin=True
+    # === Classifier (Free Model) ===
+    optimizer_chief.zero_grad()
+    chief_output = classifier_chief(wsi_embedding_chief)
+    probs_chief = F.softmax(chief_output, dim=1)
+
+    loss_free = noise_free_loss(
+        logits=chief_output,
+        targets=label.expand(chief_output.size(0)),
+        robust_logits=noise_robust_output,
+        conf_func=conf_func,
+        robust_loss_fn=robust_loss_fn,
+        label_correction=label_correction,
+        beta_coe=beta_coe,
     )
 
-    # 儲存 chief/giga features
-    chief_features_group = chief_features_group[0].squeeze(0)
-    local_memory.select_chief_feature_pool.append(chief_features_group)
+    # === Regularization (L2 distance between params) ===
+    params_robust = torch.cat([p.view(-1) for p in chief_noise_robust_model.parameters()])
+    params_free = torch.cat([p.view(-1) for p in classifier_chief.parameters()])
+    reg_term = lambda_reg * torch.norm(params_robust - params_free, p=2)
 
-    gigapath_features_group = gigapath_features_group[0].unsqueeze(0)
-    local_memory.select_gigapath_feature_pool.append(gigapath_features_group)
 
-    # ========== 最終分類（WSI level） ==========
+    # === Total Loss ===
+    loss_total = loss_robust + loss_free + reg_term
 
-    # 取得 WSI embedding
-    wsi_embedding_chief = chief_wsi_embedding(chief_model, torch.cat(local_memory.select_chief_feature_pool, dim=0))
-    wsi_embedding_gigapath = gigapath_wsi_embedding(
-        gigapath_model,
-        torch.cat(local_memory.select_gigapath_feature_pool, dim=1),
-        torch.cat(local_memory.coords_actions, dim=1)
-    )
-    
-    output = classifier_chief(wsi_embedding_chief)
-    chief_probs = F.softmax(output, dim=1)
-    
-    output_giga = classifier_giga(wsi_embedding_gigapath.to(device))
-    gigapath_probs = F.softmax(output_giga, dim=1)
+    # === Backward ===
+    optimizer_noise_robust_chief.zero_grad()
+    optimizer_chief.zero_grad()
+    loss_total.backward()
+    optimizer_noise_robust_chief.step()
+    optimizer_chief.step()
 
-    giga_reward = gigapath_probs[0][label.item()] - memory.last_performance[(name, "gigapath")]
-    chief_reward = chief_probs[0][label.item()] - memory.last_performance[(name, "chief")]
+    if isinstance(Q, torch.Tensor):
+        probs_whole_mean, _, _, probs_whole_std = mcd_cp_inference(classifier_chief, wsi_embedding_chief, Q, T=25, dropout_rate=0.1)
+        probs_whole = (probs_whole_mean-probs_whole_std)
+    else:
+        probs_whole = probs_chief
 
-    raw_reward = (giga_reward + chief_reward) / 2
-    reward = raw_reward * 5
-    reward = reward.unsqueeze(0) if reward.ndim == 0 else reward
+
+    return {
+        "loss_total": loss_total,
+        "loss_robust": loss_robust.item(),
+        "loss_free": loss_free.item(),
+        "reg_term": reg_term.item(),
+        "probs_robust": probs_noise_robust.detach(),
+        "probs_free": probs_chief.detach(),
+        "reward": probs_whole.detach(),
+    }
+
+
+def intermidiate_score(
+    whole_embedding,   # [1, D]
+    test_embedding,    # [1, D]
+    label,
+    classifier,        # slide-level classifier
+    Q=None,
+):
+    """
+    Compute intermediate reward as a 1D tensor [1]:
+        reward = score(test_embedding) - score(whole_embedding)
+    """
+
+    # 推進 device 和 dtype
+    device = next(classifier.parameters()).device
+    dtype  = next(classifier.parameters()).dtype
+
+    whole_embedding = whole_embedding.to(device=device, dtype=dtype)
+    test_embedding  = test_embedding.to(device=device, dtype=dtype)
+
+
+    if isinstance(Q, torch.Tensor):
+        probs_whole_mean, _, _, probs_whole_std = mcd_cp_inference(classifier, whole_embedding, Q, T=25, dropout_rate=0.1)
+        probs_test_mean, _, _, probs_test_std  = mcd_cp_inference(classifier, test_embedding, Q, T=25, dropout_rate=0.1)
+        probs_whole = (probs_whole_mean-probs_whole_std)[0]
+        probs_test = (probs_test_mean-probs_test_std)[0]
+    else:
+        # forward
+        logits_whole = classifier(whole_embedding)  # [1, C]
+        logits_test  = classifier(test_embedding)   # [1, C]
+        probs_whole = torch.softmax(logits_whole, dim=1)[0]  # [C]
+        probs_test  = torch.softmax(logits_test, dim=1)[0]   # [C]
+
+    # 取得正確 label 的 score
+    if label is None:
+        label = 1  # default: positive class
+
+    score_whole = probs_whole[label.item()]
+    score_test  = probs_test[label.item()]
+
+    # reward = test - whole，並回傳 shape = [1]
+    reward = (score_test - score_whole).unsqueeze(0)  # [1]
 
     return reward
+    
 
 
-def train(args, MoE,ppo,classifier_chief, classifier_giga,FusionHisF,gigapath_model, memory,train_loader, validation_loader, test_loader=None, wandb=None):
+def select_and_embed_chief_patches(
+    ppo_chief,
+    chief_memory,
+    center,
+    Now_picked_num,
+    Total_picked_num,
+    feature_group,
+    label=None,
+    classifier=None,
+    chief_model=None,
+    wandb=None,
+    Q=None,
+    device="cuda"
+):
+    """
+    使用 PPO agent 選擇 patch，建立 sub-bag，並生成 WSI-level embedding。
 
+    Args:
+        ppo_chief (nn.Module): Chief PPO agent。
+        chief_memory (object): 儲存 agent 狀態的記憶體物件。
+        grouping_instance (object): 負責 patch grouping 與 sub-bag 生成的物件。
+        chief_model (nn.Module): Chief feature embedding 模型。
+        update_chief_coords (Tensor): [N, 2] patch 座標。
+        update_chief_data (Tensor): [1, N, D] patch 特徵。
+        num_patch (int): patch 數量。
+        sigma (float): Gaussian noise 參數，用於 action sampling。
+        action_ratio (float): 每次選取的比例（預設 0.4, 即 2/5）。
+
+    Returns:
+        dict: {
+            "chief_memory": 更新後的記憶體物件,
+            "chief_features_group": Tensor [K, D],
+            "wsi_embedding_chief": Tensor [1, D],
+            "action_index_pro": Tensor (選取的索引機率),
+            "idx_patches": Tensor (被選到的 patch 索引)
+        }
+    """
+
+    # === Step 1. 輸入 WSI-level embedding 到記憶體 ===
+    # State prepare
+    center = center.float().to(device)                           # 保證 float tensor
+    extra = torch.tensor([[Now_picked_num, Total_picked_num]], 
+                        dtype=center.dtype, 
+                        device=center.device)          # [1, 2]
+
+    state = torch.cat([center, extra], dim=1).to(device)             # [1, 770]
+    chief_memory.merge_msg_states.append(state)
+
+    # === Step 2. 讓 PPO 選擇動作 ===
+    action = ppo_chief.select_action(
+        None,
+        chief_memory,
+        restart_batch=True,
+        training=True
+    )
+
+    # === Step 5. 將選到的特徵存入記憶體池 ===
+    if action.item() == 1:
+        if label != None:
+            if len(chief_memory.select_chief_feature_pool) > 0:
+                join_embeding = chief_memory.select_chief_feature_pool[:]
+                join_embeding.append(feature_group)
+                reward = intermidiate_score(
+                    whole_embedding=chief_wsi_embedding(chief_model, torch.cat(chief_memory.select_chief_feature_pool, dim=0).to(center.device)).detach(),
+                    test_embedding=chief_wsi_embedding(chief_model, torch.cat(join_embeding, dim=0).to(center.device)).detach(),
+                    label=label,
+                    classifier=classifier,
+                    Q=Q,
+                ).detach()
+                # print(f"reward: {reward}")
+            else:
+                reward = torch.tensor([0.0], dtype=torch.float, device=center.device)
+                # print("No")
+
+        chief_memory.select_chief_feature_pool.append(feature_group.detach())
+    else:
+        reward = torch.tensor([0.0], dtype=torch.float, device=center.device)
+
+
+    if wandb:
+        chief_memory.rewards.append(reward)
+        wandb.log({
+            "chief_ppo/reward": reward.item(),
+        })
+
+    return {
+        "chief_memory": chief_memory,
+    }
+
+
+def enable_dropout(model):
+    for m in model.modules():
+        if isinstance(m, nn.Dropout):
+            m.train()
+
+
+@torch.no_grad()
+def mcd_forward(model, x, T=25, dropout_rate=0.1):
+    model.eval()
+    model.set_dropout_rate(dropout_rate)
+    enable_dropout(model)
+
+    preds = []
+    for _ in range(T):
+        logits = model(x)                      # [B, 2]
+        probs = torch.softmax(logits, dim=-1)  # ⭐ logits → prob
+        preds.append(probs.unsqueeze(0))       # [1, B, 2]
+
+    preds = torch.cat(preds, dim=0)            # [T, B, 2]
+    mean = preds.mean(0)
+    std  = preds.std(0)
+    return mean, std
+
+
+# ----------------------------------------------------------
+# ⭐ 專門用來算 CP quantile（只在 VAL 用）
+# ----------------------------------------------------------
+@torch.no_grad()
+def compute_cp_Q(
+    model,
+    calib_loader,
+    device="cuda",
+    alpha=0.1,
+    T=25,
+    dropout_rate=0.1
+):
+    model.to(device)
+    all_scores = []
+
+    for idx, (_, xb, _, yb, _) in enumerate (tqdm(calib_loader)):
+        xb = xb.squeeze(0).to(device)
+        yb = yb.to(device)
+
+        mean_cal, std_cal = mcd_forward(model, xb, T=T, dropout_rate=dropout_rate)
+
+        eps = 1e-8
+        scores = torch.abs(mean_cal - yb) / (std_cal + eps)
+        all_scores.append(scores.cpu())
+
+    S = torch.cat(all_scores, dim=0)  # [N, D]
+    N, D = S.shape
+
+    Q_list = []
+    for d in range(D):
+        s = S[:, d].numpy()
+        s_sorted = np.sort(s)
+        k = int(np.ceil((N + 1) * (1 - alpha))) - 1
+        k = np.clip(k, 0, N - 1)
+        Q_list.append(s_sorted[k])
+
+    return torch.tensor(Q_list).float().to(device)   # [D]
+
+@torch.no_grad()
+def mcd_cp_inference(model, x, Q, T=25, dropout_rate=0.1):
+    mean, std = mcd_forward(model, x, T=T, dropout_rate=dropout_rate)
+
+    Q_ = Q.view(1, -1)      # [1, D]
+    interval = Q_ * std     # [B, D]
+    lower = mean - interval
+    upper = mean + interval
+
+    return mean, lower, upper, std
+
+
+def train_chief_epoch(
+    wandb,
+    epoch,
+    train_loader,
+    device,
+    agent_train_step,
+    ppo_chief,
+    classifier_chief,
+    chief_noise_robust_model,
+    chief_model,
+    chief_memory,
+    grouping_instance,
+    chief_wsi_embedding,
+    optimizer_chief,
+    optimizer_noise_robust_chief,
+    noise_robust_loss,
+    noise_free_loss,
+    conf_func,
+    robust_loss_fn,
+    calculate_metrics,
+    ppo_feature_list,
+    ppo_label_list,
+    ppo_reward_list, 
+    cluster_list,
+    lambda_reg=1e-4,
+    Q=None,
+):
+    """
+    執行一次 Chief 模型與 Noise-Robust 模型的訓練 Epoch。
+
+    Args:
+        epoch: int, 當前 epoch
+        train_loader: DataLoader
+        device: torch.device
+        args: argparse.Namespace，包含 num_epochs 等參數
+        ppo_chief: PPO 代理
+        classifier_chief: 主分類器
+        chief_noise_robust_model: Noise-robust 分類器
+        chief_model: 特徵提取模型
+        chief_memory: RL 記憶體
+        grouping_instance: 負責 patch grouping 的模組
+        chief_wsi_embedding: 特徵聚合函式
+        optimizer_chief, optimizer_noise_roust_chief: 優化器
+        noise_robust_loss, noise_free_loss: loss 函式
+        conf_func, robust_loss_fn: 噪聲控制函式
+        calculate_metrics: 指標計算函式
+        lambda_reg: float, 兩模型正則化係數
+    """
+
+    Y_prob_list = []
+    Y_noise_robust_prob_list = []
+    label_list = []
+
+    chief_loss = 0
+    noise_loss = 0
+    reg_loss = 0
+
+    for ide, (coords, chief_data, _, label, name) in enumerate(tqdm(train_loader)):
+
+        num_patch = chief_data.size(1)
+        label_correction = epoch >= 1
+
+        coords = coords.squeeze(dim=3)
+        update_chief_coords, update_chief_data, label = (
+            coords.to(device),
+            chief_data.squeeze(0).to(device),
+            label.to(device).long(),
+        )
+
+        classifier_chief.train()
+        chief_noise_robust_model.train()
+
+        # print(cluster_list)
+        centers, groups = cluster_list[name[0]]["centers"], cluster_list[name[0]]["groups"]
+
+        for center, feature_group in zip(centers, groups):
+            select_and_embed_chief_patches(
+                ppo_chief=ppo_chief,
+                chief_memory=chief_memory,
+                center=center.unsqueeze(0),
+                Now_picked_num=len(chief_memory.select_chief_feature_pool),
+                Total_picked_num=len(centers),
+                feature_group=feature_group,
+                label=label,
+                classifier=classifier_chief,
+                chief_model=chief_model,
+                Q=Q,
+                wandb=wandb,
+            )
+
+        if len(chief_memory.select_chief_feature_pool) == 0:
+            # 若沒有任何被選到的 feature，就建立一個 [1, 768] 的 0 tensor
+            wsi_embedding_chief = torch.zeros((1, 768), device=device)
+        else:
+            wsi_embedding_chief = chief_wsi_embedding(
+                chief_model,
+                torch.cat(chief_memory.select_chief_feature_pool, dim=0).to(device)
+            ).detach()
+
+        result_main_classifier = train_noise_robust_and_free_models(
+            wsi_embedding_chief=wsi_embedding_chief,
+            label=label,
+            chief_noise_robust_model=chief_noise_robust_model,
+            classifier_chief=classifier_chief,
+            optimizer_noise_robust_chief=optimizer_noise_robust_chief,
+            optimizer_chief=optimizer_chief,
+            noise_robust_loss=noise_robust_loss,
+            noise_free_loss=noise_free_loss,
+            robust_loss_fn=robust_loss_fn,
+            conf_func=conf_func,
+            label_correction=label_correction,
+            lambda_reg=lambda_reg,
+            beta_coe=0.5,
+            Q=Q,
+        )
+
+        chief_loss += result_main_classifier["loss_free"]
+        noise_loss += result_main_classifier["loss_robust"]
+        reg_loss += result_main_classifier["reg_term"]
+
+        Y_prob_list.append(result_main_classifier["probs_free"].cpu())
+        Y_noise_robust_prob_list.append(result_main_classifier["probs_robust"].cpu())
+        label_list.append(label.cpu())
+
+        select_patch = 0
+        for i in chief_memory.select_chief_feature_pool:
+            select_patch += i.size(0)
+
+        # === RL Reward ===
+        chief_classifier_reward = result_main_classifier["reward"][0][label.item()].unsqueeze(0).detach()
+        if select_patch == 0:
+            chief_memory.rewards[-1] += torch.tensor([-5], device=device, dtype=torch.float)
+        elif select_patch == num_patch:
+            chief_memory.rewards[-1] += torch.tensor([-1], device=device, dtype=torch.float)
+        else:
+            chief_memory.rewards[-1] += chief_classifier_reward.float()
+        
+
+        # === Logging ===
+        wandb.log({
+            "chief_ppo/select_patch": select_patch/num_patch,
+            "chief_ppo/pro_reward": chief_classifier_reward.item(),
+            "probability/chief_true_label": result_main_classifier["probs_free"][0][label.item()].detach(),
+            "probability/chief_false_label": result_main_classifier["probs_free"][0][1 - label.item()].detach(),
+        })
+
+        # === PPO Update ===
+
+        chief_memory.actions.insert(0, -1)
+        chief_memory.logprobs.insert(0, -1)
+        policy_loss, value_loss, total_loss = ppo_chief.update(chief_memory)
+        wandb.log({
+            "chief_ppo/policy_loss": policy_loss,
+            "chief_ppo/value_loss": value_loss,
+            "chief_ppo/total_loss": total_loss,
+        })
+        agent_train_step += 1
+        chief_memory.clear_memory()
+
+
+    # === Epoch Metrics ===
+    targets = np.asarray(torch.cat(label_list, dim=0).detach().cpu().numpy()).reshape(-1)
+    probs = np.asarray(torch.cat(Y_prob_list, dim=0).detach().cpu().numpy())
+    precision, recall, f1, auc, accuracy = calculate_metrics(targets, probs)
+    wandb.log({
+        "train_chief/precision": precision,
+        "train_chief/recall": recall,
+        "train_chief/f1": f1,
+        "train_chief/auc": auc,
+        "train_chief/acc": accuracy,
+        "train_chief/loss": chief_loss / len(train_loader),
+        "train_chief/reg_loss": reg_loss / len(train_loader),
+    })
+
+    probs = np.asarray(torch.cat(Y_noise_robust_prob_list, dim=0).detach().cpu().numpy())
+    precision, recall, f1, auc, accuracy = calculate_metrics(targets, probs)
+    wandb.log({
+        f"noise_Model/precision": precision,
+        f"noise_Model/recall": recall,
+        f"noise_Model/f1": f1,
+        f"noise_Model/auc": auc,
+        f"noise_Model/acc": accuracy,
+        f"noise_Model/loss": noise_loss / len(train_loader),
+    })
+
+    return agent_train_step, ppo_feature_list, ppo_label_list, ppo_reward_list
+
+
+def group_and_get_centers(update_chief_data, k=100):
+
+    # 準備資料
+    if isinstance(update_chief_data, torch.Tensor):
+        device = update_chief_data.device
+        update_chief_data_np = update_chief_data.detach().cpu().numpy()
+    else:
+        device = "cpu"
+        update_chief_data_np = update_chief_data
+
+    N = len(update_chief_data_np)
+    n_clusters = max(2, N // k)
+
+    # 執行 KMeans
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init="auto")
+    labels_np = kmeans.fit_predict(update_chief_data_np)
+    centers_np = kmeans.cluster_centers_
+
+    # 轉回 tensor
+    centers = torch.as_tensor(centers_np, device=device, dtype=torch.float32)
+
+    # 依群標籤取出對應的 feature
+    groups = []
+    for i in range(n_clusters):
+        cluster_feats = update_chief_data[torch.as_tensor(labels_np == i, device=device)]
+        # print(cluster_feats.shape)
+        groups.append(cluster_feats)
+
+    return centers, groups
+
+
+def cluster_chief_data(train_loader, device="cpu", save_path=None):
+    """
+    使用 group_and_get_centers() 自動分群，
+    回傳 dict，以 name 為 key：
+        cluster_record[name] = {
+            "centers": torch.Tensor,
+            "groups": list[Tensor],
+            "label": torch.LongTensor([label])
+        }
+    """
+    cluster_record = {}
+
+    for ide, (coords, chief_data, _, label, name) in enumerate(tqdm(train_loader)):
+        # 移到 device
+        if isinstance(chief_data, torch.Tensor):
+            chief_data = chief_data.to(device)
+
+        # 分群
+        centers, groups = group_and_get_centers(chief_data.squeeze(0))
+
+        label_long = torch.tensor(label.item(), dtype=torch.long, device=device)
+
+        # name 可能是 list
+        if isinstance(name, (list, tuple)):
+            for n in name:
+                cluster_record[n] = {
+                    "centers": centers,
+                    "groups": groups,
+                    "label": label_long,    # ← long tensor
+                }
+        else:
+            cluster_record[name] = {
+                "centers": centers,
+                "groups": groups,
+                "label": label_long,        # ← long tensor
+            }
+
+    # optional save
+    if save_path is not None:
+        with open(save_path, "wb") as f:
+            pickle.dump(cluster_record, f)
+
+    return cluster_record
+
+
+
+def train(args, ppo_chief, ppo_gigapath, classifier_chief, classifier_giga, chief_noise_robust_model, gigapath_rewardModels, gigapath_model, chief_memory, train_classifier_memory, train_loader, validation_loader, test_loader=None, wandb=None):
     
     run_name = f"{args.csv.split('/')[-1].split('.')[0]}"
     save_dir = os.path.join(args.save_dir, run_name)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    optimizer_chief = torch.optim.Adam(list(classifier_chief.parameters()),lr=1e-4, weight_decay=1e-5)
-    optimizer_giga = torch.optim.Adam(list(classifier_giga.parameters()),lr=1e-4, weight_decay=1e-5)
+    optimizer_noise_robust_chief = torch.optim.Adam(chief_noise_robust_model.parameters(),lr=3e-5,weight_decay=1e-5)
+    optimizer_chief = torch.optim.Adam(classifier_chief.parameters(),lr=3e-5,weight_decay=1e-5)
 
     chief_model = CHIEF(size_arg="small", dropout=True, n_classes=2)
     td = torch.load(r'./model_weight/CHIEF_pretraining.pth', map_location=device)
@@ -296,345 +851,315 @@ def train(args, MoE,ppo,classifier_chief, classifier_giga,FusionHisF,gigapath_mo
     chief_model.eval()
 
     none_epoch = 0
-    best_auc = 0
+    best_chief_auc = 0
+    agent_train_step = 0
 
-    local_memory = copy.deepcopy(memory)
-    MoE_start = False
+    ppo_feature_list = []
+    ppo_label_list = []
+    ppo_reward_list = []
+
+    grouping_instance = grouping(action_size=args.action_size)
+    robust_loss_fn = GCELoss(q=0.7)
+    conf_func = LabelConfidence(m=0.0, momentum=0.7)
+
+    # cluster_list = cluster_chief_data(train_loader, device="cpu")
+    # cluster_list = cluster_chief_data(train_loader, device="cpu", save_path=os.path.join(save_dir, "cluster_train.pth"))
+    # cluster_list_val = cluster_chief_data(validation_loader, device="cpu")
+    # cluster_list_val = cluster_chief_data(validation_loader, device="cpu", save_path=os.path.join(save_dir, "cluster_val.pth"))
+    pkl_path = os.path.join(args.chief_feature_dir, "cluster_record_AgglomerativeComplete.pkl")
+    with open(pkl_path, "rb") as f:
+        cluster_record = pickle.load(f)
+
+    Q = None
     
+
+    print("Training !!!") 
     for idx, epoch in enumerate(range(args.num_epochs)):
-        if epoch >= 1:
-            MoE_start = True
-        classifier_chief.train()
-        classifier_giga.train()
-        chief_Y_prob_list = []
-        giga_Y_prob_list = []
-        label_list = []
-        Y_prob_list = []
-        sample_names = []
-        patch_ids = []
-
-        chief_loss = 0
-        giga_loss = 0
         
-
-        MoE_select_num = 0
-
-        optimizer_chief.zero_grad()
-        optimizer_giga.zero_grad()
-        for ide, (coords, chief_data, gigapath_data, label, name) in enumerate(tqdm(train_loader)):
-            sample_names.append(name)
-            
-            coords = coords.squeeze(dim=3)
-            update_coords, update_chief_data, update_gigapath_data, label = coords.to(device), chief_data.to(device), gigapath_data.to(device), label.to(device).long()
-
-            chief_data = chief_data.float()
-            gigapath_data = gigapath_data.float()
-
-            grouping_instance = grouping(action_size=args.action_size)
-
-            whole_chief = update_chief_data.detach().squeeze(0)
-            chief_wsi = chief_wsi_embedding(chief_model, whole_chief)
-            whole_gigapath = update_gigapath_data.detach()
-            gigapath_wsi = gigapath_wsi_embedding(gigapath_model, whole_gigapath, update_coords).to(device)
-            patch_num = update_coords.size(1) / 16000 # Normalization
-            patch_feat_tensor = torch.tensor([[patch_num]], dtype=torch.float32).to(device)  # shape [1, 1]
-
-            # concate MoE state
-            if MoE_start:
-                expert_state = torch.cat([chief_wsi, gigapath_wsi], dim=-1) 
-                expert_state = torch.cat([expert_state, patch_feat_tensor], dim=-1)
-                memory.expert_states.append(expert_state)
-                # MoE
-                expert_select = MoE.select_action(
-                    None, memory, restart_batch=True, training=True
-                )
-                
-                # agent state
-                if expert_select == 0:                
-                    agent_state = chief_wsi
-                    opponent_score = run_no_fusion_state(chief_model, gigapath_model, classifier_chief, classifier_giga, gigapath_wsi.detach(), update_coords.detach(), update_chief_data.detach(), update_gigapath_data.detach(), label, args, device, ppo, grouping_instance, local_memory, name, "chief")
-                    # print(opponent_score)
-                elif expert_select == 1:
-                    agent_state = gigapath_wsi
-                    opponent_score = run_no_fusion_state(chief_model, gigapath_model, classifier_chief, classifier_giga, chief_wsi.detach(), update_coords.detach(), update_chief_data.detach(), update_gigapath_data.detach(), label, args, device, ppo, grouping_instance, local_memory, name, "gigapath")
-                    MoE_select_num += 1
-            else:
-                expert_select = random.choice([0, 1])
-                if expert_select == 0:                
-                    agent_state = chief_wsi
-                elif expert_select == 1:
-                    agent_state = gigapath_wsi
-                    MoE_select_num += 1              
-                
-            memory.merge_msg_states.append(agent_state)  
-
-            _ = ppo.select_action(
-                None, memory, restart_batch=True, training=True
-            )
-
-            action_index_pro, memory = grouping_instance.rlselectindex_grouping(
-                ppo, memory, update_coords, sigma=0.02, restart=False
-            )
-
-            idx_patches, chief_features_group, gigapath_features_group, update_coords, update_chief_data, update_gigapath_data, memory = grouping_instance.action_make_subbags(
-                ppo, memory, action_index_pro, update_coords, update_chief_data, update_gigapath_data,
-                action_size=args.action_size, restart=False, delete_begin=True
-            )
-
-            patch_ids.append(idx_patches)
-            chief_features_group = chief_features_group[0].squeeze(0) 
-            memory.select_chief_feature_pool.append(chief_features_group.detach())                                             
-
-            gigapath_features_group = gigapath_features_group[0].unsqueeze(0)
-            memory.select_gigapath_feature_pool.append(gigapath_features_group.detach())
-
-            # 最終分類（WSI level）
-            wsi_embedding_chief = chief_wsi_embedding(chief_model, torch.cat(memory.select_chief_feature_pool, dim=0))
-            wsi_embedding_gigapath = gigapath_wsi_embedding(gigapath_model, torch.cat(memory.select_gigapath_feature_pool, dim=1), torch.cat(memory.coords_actions, dim=1))
-            
-            # chief
-            optimizer_chief.zero_grad()
-            output = classifier_chief(wsi_embedding_chief)
-            loss = F.cross_entropy(output, label)
-            loss.backward()
-            optimizer_chief.step()
-            
-            # record loss
-            chief_loss += loss.item()
-            probs_chief = F.softmax(output, dim=1)
-
-            with torch.no_grad():
-                # chief
-                output_moe = classifier_chief(wsi_embedding_chief)
-                probs_chief_moe = F.softmax(output_moe, dim=1)
-                local_memory.last_performance[(name, "chief")] = probs_chief_moe[0][label.item()].detach()
-            
-            # gigapath
-            optimizer_giga.zero_grad()
-            output_giga = classifier_giga(wsi_embedding_gigapath.to(device))
-            loss_giga = F.cross_entropy(output_giga, label)
-            loss_giga.backward()
-            optimizer_giga.step()
-
-            # record loss
-            giga_loss += loss_giga.item()
-            probs_giga = F.softmax(output_giga, dim=1)
-
-            with torch.no_grad():
-                # chief
-                output_giga_moe = classifier_chief(wsi_embedding_chief)
-                probs_giga_moe = F.softmax(output_giga_moe, dim=1)
-                local_memory.last_performance[(name, "gigapath")] = probs_giga_moe[0][label.item()].detach()
-
-            values = torch.stack([probs_chief[0][label.item()].detach(), probs_giga[0][label.item()].detach()])
-            memory.rewards.append((values.mean() - values.var(unbiased=False)).unsqueeze(0).detach())
-            record_reward = torch.mean(torch.stack(memory.rewards)).item()
-            if MoE_start:
-                memory.moe_rewards.append(opponent_score.detach())
-                record_moe_reward = torch.mean(torch.stack(memory.moe_rewards)).item()
-            else:
-                record_moe_reward = 0
-            
-
-            if (ide+1) % 64 == 0 or ide == len(train_loader)-1:
-                
-                memory.actions.insert(0, -1)
-                memory.logprobs.insert(0, -1)
-                policy_loss, value_loss, total_loss = ppo.update(memory)
-                if wandb:
-                    wandb.log({
-                        "ppo/policy_loss": policy_loss,
-                        "ppo/value_loss": value_loss,
-                        # "ppo/entropy": entropy,
-                        "ppo/total_loss": total_loss,
-                    })
-                memory.expert_select_actions.insert(0, -1)
-                memory.expert_select_logprobs.insert(0, -1)
-                if MoE_start:
-                    policy_loss, value_loss, entropy, aux_loss, total_loss = MoE.update(memory, epoch)
-                    if wandb:
-                        wandb.log({
-                            "MoE/policy_loss": policy_loss,
-                            "MoE/value_loss": value_loss,
-                            "MoE/entropy": entropy,
-                            "MoE/total_loss": total_loss,
-                            "MoE/aux_loss": aux_loss,
-                        })
-                memory.clear_memory()
-
-            if wandb:
-                wandb.log({
-                    "reward": record_reward,
-                    "reward_mean": values.mean().item(),
-                    "MoE/reward": record_moe_reward,
-                    "reward_var": values.var(unbiased=False).item(),
-                    "probability/chief_true_label": probs_chief[0][label.item()].detach(), 
-                    "probability/chief_false_label": probs_chief[0][1 - label.item()].detach(), 
-                    "probability/gigapath_true_label": probs_giga[0][label.item()].detach(), 
-                    "probability/gigapath_false_label": probs_giga[0][1 - label.item()].detach(),
-                })
-
-            # ensemble
-            ensemble_probs = (probs_chief + probs_giga) / 2
-            Y_prob_list.append(ensemble_probs)
-            label_list.append(label)
-
-            # chief
-            chief_Y_prob_list.append(probs_chief)
-
-            # gigapath
-            giga_Y_prob_list.append(probs_giga)
-            
-            memory.clear_memory_training()
-
-        targets = np.asarray(torch.cat(label_list, dim=0).detach().cpu().numpy()).reshape(-1)
-        probs = np.asarray(torch.cat(Y_prob_list, dim=0).detach().cpu().numpy())
-        precision, recall, f1, auc, accuracy = calculate_metrics(targets, probs)
-
-        memory.clear_memory()
+        agent_train_step, ppo_feature_list, ppo_label_list, ppo_reward_list = train_chief_epoch(
+            wandb=wandb,
+            epoch=epoch,
+            train_loader=train_loader,
+            device=device,
+            agent_train_step=agent_train_step,
+            ppo_chief=ppo_chief,
+            classifier_chief=classifier_chief,
+            chief_noise_robust_model=chief_noise_robust_model,
+            chief_model=chief_model,
+            chief_memory=chief_memory,
+            grouping_instance=grouping_instance,
+            chief_wsi_embedding=chief_wsi_embedding,
+            optimizer_chief=optimizer_chief,
+            optimizer_noise_robust_chief=optimizer_noise_robust_chief,
+            noise_robust_loss=noise_robust_loss,
+            noise_free_loss=noise_free_loss,
+            conf_func=conf_func,
+            robust_loss_fn=robust_loss_fn,
+            calculate_metrics=calculate_metrics,
+            ppo_feature_list = ppo_feature_list,
+            ppo_label_list = ppo_label_list,
+            ppo_reward_list = ppo_reward_list,
+            cluster_list=cluster_record,
+            Q=Q,
+        )
         
-        if wandb:
-            log_patch_ids_to_wandb(epoch, sample_names, patch_ids, wandb=wandb)
-            wandb.log({
-                f"classifier_chief_loss": chief_loss/len(train_loader),
-            })
-
-            wandb.log({
-                f"classifier_giga_loss": giga_loss/len(train_loader),
-            })
-
-
-            wandb.log({
-                "epoch": epoch,
-                "MoE_select_chief": len(train_loader)-MoE_select_num,
-                "MoE_select_gigapath": MoE_select_num,
-                "train/precision": precision,
-                "train/recall": recall,
-                "train/f1": f1,
-                "train/auc": auc,
-                "train/acc": accuracy
-            })
-
-        # chief record
-        targets = np.asarray(torch.cat(label_list, dim=0).detach().cpu().numpy()).reshape(-1)
-        probs = np.asarray(torch.cat(chief_Y_prob_list, dim=0).detach().cpu().numpy())
-        precision, recall, f1, auc, accuracy = calculate_metrics(targets, probs)
-        if wandb:
-            wandb.log({
-                "epoch": epoch,
-                "train_chief/precision": precision,
-                "train_chief/recall": recall,
-                "train_chief/f1": f1,
-                "train_chief/auc": auc,
-                "train_chief/acc": accuracy
-            })
-
-        # gigapath record
-        targets = np.asarray(torch.cat(label_list, dim=0).detach().cpu().numpy()).reshape(-1)
-        probs = np.asarray(torch.cat(giga_Y_prob_list, dim=0).detach().cpu().numpy())
-        precision, recall, f1, auc, accuracy = calculate_metrics(targets, probs)
-        if wandb:
-            wandb.log({
-                "epoch": epoch,
-                "train_giga/precision": precision,
-                "train_giga/recall": recall,
-                "train_giga/f1": f1,
-                "train_giga/auc": auc,
-                "train_giga/acc": accuracy
-            })
+        wandb.log({
+            "epoch": epoch,
+        })
 
         # val
-        precision, recall, f1, val_auc, val_accuracy = test(args,MoE,ppo,classifier_chief, classifier_giga,memory,validation_loader, chief_model, gigapath_model, run_type="val", epoch=epoch, wandb=wandb)
-        if wandb:
-            wandb.log({
-                "val/precision": precision,
-                "val/recall": recall,
-                "val/f1": f1,
-                "val/auc": val_auc,
-                "val/acc": val_accuracy
-            })
+        chief_auc, targets, probs = test(args,ppo_chief,[classifier_chief],train_classifier_memory, cluster_record, validation_loader, chief_model, run_type="val", epoch=epoch, wandb=wandb)
+        # _ = test(args,ppo_chief,[classifier_chief],train_classifier_memory,test_loader, chief_model, run_type="test", epoch=epoch, wandb=wandb)
 
-        # test
-        precision, recall, f1, auc, accuracy = test(args,MoE,ppo,classifier_chief, classifier_giga,memory,test_loader, chief_model, gigapath_model, run_type="test", epoch=epoch, wandb=wandb)
-        if wandb:
-            wandb.log({
-                "test/precision": precision,
-                "test/recall": recall,
-                "test/f1": f1,
-                "test/auc": auc,
-                "test/acc": accuracy
-            })
+        Q = compute_cp_Q(classifier_chief, validation_loader)
+        ece_before = compute_binary_ece(probs[:,1], targets)
+        print("[Calibration] ECE (before):", ece_before)
+
         
-        if val_auc >= best_auc:
-            best_auc = val_auc
-            # save model
-            print(f'Save model at epoch {epoch}.')
-            print(f'val auc: {val_auc}')
-            torch.save(classifier_chief.state_dict(), os.path.join(save_dir, "classifier_chief.pth"))
-            torch.save(classifier_giga.state_dict(), os.path.join(save_dir, "classifier_gigapath.pth"))
-            ppo.save(save_dir)
-            MoE.save(save_dir)
+        if chief_auc >= best_chief_auc:
+            best_chief_auc = chief_auc
             none_epoch = 0
-        elif none_epoch >= args.patience and epoch >= 40:
+            # save model
+            torch.save(classifier_chief.state_dict(), os.path.join(save_dir, f"classifier_chief.pth"))
+            torch.save(chief_noise_robust_model.state_dict(), os.path.join(save_dir, f"classifier_noise_model.pth"))
+            ppo_chief.save(save_dir, "ppo_chief")
+        elif none_epoch >= args.patience and epoch >= 70:
             print(f"Break at epoch {epoch}.")
             break
 
         none_epoch += 1
 
-def train_baseline(args,basedmodel,ppo,classifymodel,FusionHisF,memory_space,train_loader, validation_loader, test_loader=None):
-    run_name = f"run_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    wandb.login(key="")
-    wandb.init(
-        project="WSI_baseline",      # 可以在網站上看到
-        name=run_name,      # optional，可用於區分實驗
-        config=vars(args)                    # optional，紀錄一些超參數
-    )
+def sample_all_clusters(cluster_record, chief_model, ratio=0.4):
 
-    save_dir = os.path.join(args.save_dir, run_name)
-    os.makedirs(save_dir, exist_ok=True)
+    data_list = []   # list of (embedding, label)
+
+    for slide_name, entry in cluster_record.items():
+        centers = entry["centers"]
+        groups = entry["groups"]
+        label = entry["label"].long()   # torch.long
+        # print(label.shape)
+
+        if centers is None or len(groups) == 0:
+            continue
+
+        k = centers.shape[0]
+        num_select = max(1, int(k * ratio))
+        selected_idx = random.sample(range(k), num_select)
+
+        selected_groups = [groups[i] for i in selected_idx]
+
+        # flatten
+        all_feats = torch.cat(selected_groups, dim=0).to(next(chief_model.parameters()).device)
+
+        # compute wsi embedding
+        wsi_embedding_chief = chief_wsi_embedding(
+            chief_model,
+            all_feats
+        ).detach()
+
+        # ⭐ 直接存成 tuple
+        data_list.append((wsi_embedding_chief, label))
+
+    return data_list
+
+def build_dataloader_from_list(tensor_list, batch_size=8, shuffle=True):
+    return DataLoader(tensor_list, batch_size=batch_size, shuffle=shuffle)
+
+
+class BetaCalibrator(nn.Module):
+    def __init__(self):
+        super().__init__()
+        # parameters
+        self.a = nn.Parameter(torch.zeros(1))
+        self.b = nn.Parameter(torch.zeros(1))
+        self.c = nn.Parameter(torch.zeros(1))
+
+    def forward(self, p):
+        p = torch.clamp(p, 1e-6, 1 - 1e-6)
+        logit = self.a * torch.log(p) + self.b * torch.log(1 - p) + self.c
+        return torch.sigmoid(logit)
+
+    def fit(self, x, labels, lr=0.01, max_iter=2000):
+
+        def is_prob_tensor(t):
+            if t.dim() == 2:
+                row_sum = t.sum(dim=1)
+                return torch.allclose(row_sum, torch.ones_like(row_sum), atol=1e-3)
+            else:
+                return (t.min() >= 0) and (t.max() <= 1)
+
+        # ------------------------------
+        # 判斷 x 是 prob 還是 logits
+        # ------------------------------
+        if x.dim() == 2:
+            if is_prob_tensor(x):      # prob [N,2]
+                probs = x[:, 1]
+            else:                      # logits [N,2]
+                probs = torch.softmax(x, dim=1)[:, 1]
+        else:
+            if is_prob_tensor(x):      # prob [N]
+                probs = x
+            else:                      # logits [N]
+                probs = torch.sigmoid(x)
+
+        probs = probs.detach().clamp(1e-8, 1-1e-8)
+        labels = labels.detach().float()
+
+        # ------------------------------
+        # Optimize (LBFGS)
+        # ------------------------------
+        optimizer = optim.LBFGS(self.parameters(), lr=lr, max_iter=max_iter)
+        bce = nn.BCELoss()
+
+        def closure():
+            optimizer.zero_grad()
+            pred = self.forward(probs)
+            loss = bce(pred, labels)
+            loss.backward()
+            return loss
+
+        optimizer.step(closure)
+
+        return (self.a.item(), self.b.item(), self.c.item())
+    
+
+def collect_logits_labels(model, loader, device):
+    model.eval()
+    all_logits = []
+    all_labels = []
+
+    with torch.no_grad():
+        for data, labels in loader:
+            data = data.to(device)
+            labels = labels.to(device)
+
+            logits = model(data)   # assume output is [N,2]
+            all_logits.append(logits.cpu())
+            all_labels.append(labels.cpu())
+
+    all_logits = torch.cat(all_logits, dim=0)
+    all_labels = torch.cat(all_labels, dim=0)
+    return all_logits, all_labels
+
+
+def compute_binary_ece(probs, labels, n_bins=15):
+    """
+    probs: predicted prob of class=1, shape [N]
+    labels: {0,1}, shape [N]
+    """
+    ece = 0.0
+    bins = torch.linspace(0, 1, n_bins + 1)
+
+    for i in range(n_bins):
+        left, right = bins[i], bins[i+1]
+        mask = (probs >= left) & (probs < right)
+        if mask.sum() == 0:
+            continue
+
+        bin_probs = probs[mask]
+        bin_labels = labels[mask].float()
+
+        avg_prob = bin_probs.mean()
+        avg_true = bin_labels.mean()
+
+        ece += (mask.float().mean() * torch.abs(avg_prob - avg_true))
+
+    return ece.item()
+
+
+def run_beta_calibration(probs, labels, device, n_bins=15):
+    """
+    執行 Beta Calibration + ECE 計算，並回傳:
+        (beta calibrator, 原本 ECE, 校準後 ECE)
+    """
+    # === 原始機率 ===
+    ece_before = compute_binary_ece(probs[:, 1], labels, n_bins=n_bins)
+    print("[Calibration] ECE (before):", ece_before)
+
+    # === Beta Calibration ===
+    beta = BetaCalibrator()
+    params = beta.fit(probs, labels)
+    # print("[Calibration] Beta params (a, b, c):", params)
+
+    # === 校準後機率 ===
+    calibrated_probs = beta(probs[:, 1])
+    ece_after = compute_binary_ece(calibrated_probs, labels, n_bins=n_bins)
+    print("[Calibration] ECE (after):", ece_after)
+
+    beta = beta.to(device)
+
+    return beta, ece_before, ece_after
+
+
+def train_baseline(args,basedmodel,classifymodel_top,classifymodel_bottom,FusionHisF,memory_space,train_loader, validation_loader, test_loader, wandb):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    classifymodel.to(device)
-    optimizer = torch.optim.Adam(
-        list(classifymodel.parameters()),
+    classifymodel_top.to(device)
+    classifymodel_bottom.to(device)
+    optimizer_top = torch.optim.Adam(
+        list(classifymodel_top.parameters()),
         lr=1e-4, weight_decay=1e-5
     )
+    optimizer_bottom = torch.optim.Adam(
+        list(classifymodel_bottom.parameters()),
+        lr=1e-4, weight_decay=1e-5
+    )
+
+    run_name = f"{args.csv.split('/')[-1].split('.')[0]}"
+    save_dir = os.path.join(args.save_dir, run_name)
+
+    chief_model = CHIEF(size_arg="small", dropout=True, n_classes=2)
+    td = torch.load(r'./model_weight/CHIEF_pretraining.pth', map_location=device)
+    chief_model.load_state_dict(td, strict=True)
+    chief_model.to(device)
+    chief_model.eval()
+    # print(next(chief_model.parameters()).device)
     
     none_epoch = 0
-    best_auc = 0
+    best_auc_top = 0
+
+    cluster_list = cluster_chief_data(train_loader, device="cpu", save_path=os.path.join(save_dir, "train_cluster.pkl"))
+    embedding_list = sample_all_clusters(cluster_list, chief_model, ratio=0.4)
+    train_loader = build_dataloader_from_list(embedding_list, batch_size=32)
+
+
+    cluster_list_val = cluster_chief_data(validation_loader, device="cpu", save_path=os.path.join(save_dir, "val_cluster.pkl"))
+    embedding_list_val = sample_all_clusters(cluster_list_val, chief_model, ratio=0.4)
+    validation_loader = build_dataloader_from_list(embedding_list_val, batch_size=32, shuffle=False)
+
+    cluster_list_test = cluster_chief_data(test_loader, device="cpu", save_path=os.path.join(save_dir, "test_cluster.pkl"))
+    embedding_list_test = sample_all_clusters(cluster_list_test, chief_model, ratio=0.4)
+    test_loader = build_dataloader_from_list(embedding_list_test, batch_size=32, shuffle=False)
+
 
     for idx, epoch in enumerate(range(args.num_epochs)):
-        classifymodel.train()
+        classifymodel_bottom.train()
+        classifymodel_top.train()
 
         epoch_loss = 0.0
-        correct = 0
-        total = 0
+        epoch_loss_bottom = 0.0
 
         label_list = []
         Y_prob_list = []
+        Y_prob_list_bottom = []
 
-        for _, (coords, data, label) in enumerate(tqdm(train_loader)):
-            optimizer.zero_grad()
-            update_coords, update_data, label = coords.to(device), data.to(device), label.to(device).long()
+        for _, (chief_data, label) in enumerate(tqdm(train_loader)):
+            # print(label.shape)
+            optimizer_top.zero_grad()
+            optimizer_bottom.zero_grad()
+            label = label.to(device).long()
+            chief_data = chief_data.to(device)
 
-            # 預處理
-            #if args.type == 'camelyon16':
-            #    update_data = basedmodel.fc1(update_data)
-            #else:
-            #    update_data = update_data.float()
-            
-            W_logits = classifymodel(update_data).squeeze(1)
+            W_logits = classifymodel_top(chief_data).squeeze(1)
             W_Y_prob = F.softmax(W_logits, dim=1)
-            W_Y_hat = torch.argmax(W_Y_prob, dim=1)
 
             # 計算 loss（以交叉熵為例）
             #print(W_logits.shape)
             #print(label.shape)
             loss_WSI = F.cross_entropy(W_logits, label)
-            #print(loss_SIA.item(), loss_WSI.item())
             loss = loss_WSI
             loss.backward()
-            optimizer.step()
+            optimizer_top.step()
 
             #print(f'Idx: {idx},loss: {loss.item()}')
 
@@ -642,56 +1167,90 @@ def train_baseline(args,basedmodel,ppo,classifymodel,FusionHisF,memory_space,tra
 
             # 計算正確率
             epoch_loss += loss.item()
-            correct += (W_Y_hat == label).sum().item()
-            total += label.size(0)
             label_list.append(label)
             Y_prob_list.append(W_Y_prob)
+
+            # W_logits = classifymodel_bottom(update_data_bottom).squeeze(1)
+            # W_Y_prob = F.softmax(W_logits, dim=1)
+
+            # # 計算 loss（以交叉熵為例）
+            # #print(W_logits.shape)
+            # #print(label.shape)
+            # loss_WSI = F.cross_entropy(W_logits, label)
+            # loss = loss_WSI
+            # loss.backward()
+            # optimizer_bottom.step()
+
+            # epoch_loss_bottom += loss.item()
+            # Y_prob_list_bottom.append(W_Y_prob)
+
 
         targets = np.asarray(torch.cat(label_list, dim=0).detach().cpu().numpy()).reshape(-1)
         probs = np.asarray(torch.cat(Y_prob_list, dim=0).detach().cpu().numpy())
         precision, recall, f1, auc, accuracy = calculate_metrics(targets, probs)
 
-        if wandb:
-            wandb.log({
-                "loss": epoch_loss,
-                "epoch": epoch,
-                "train/precision": precision,
-                "train/recall": recall,
-                "train/f1": f1,
-                "train/auc": auc,
-                "train/acc": accuracy
-            })
+        wandb.log({
+            "loss_top": epoch_loss/len(train_loader),
+            "epoch": epoch,
+            "train_top/precision": precision,
+            "train_top/recall": recall,
+            "train_top/f1": f1,
+            "train_top/auc": auc,
+            "train_top/acc": accuracy
+        })
+
+        # probs = np.asarray(torch.cat(Y_prob_list_bottom, dim=0).detach().cpu().numpy())
+        # precision, recall, f1, auc, accuracy = calculate_metrics(targets, probs)
+
+        # wandb.log({
+        #     "loss_bottom": epoch_loss_bottom/len(train_loader),
+        #     "epoch": epoch,
+        #     "train_bottom/precision": precision,
+        #     "train_bottom/recall": recall,
+        #     "train_bottom/f1": f1,
+        #     "train_bottom/auc": auc,
+        #     "train_bottom/acc": accuracy
+        # })
 
         #acc = correct / total
         #print(f"[Epoch {epoch+1}/{args.num_epochs}] Loss: {epoch_loss:.4f}, Accuracy: {acc:.4f}")
-        precision, recall, f1, val_auc, val_accuracy = test_baseline(args,basedmodel,ppo,classifymodel,FusionHisF,memory_space,validation_loader, "val", epoch)
-        if wandb:
-            wandb.log({
-                "val/precision": precision,
-                "val/recall": recall,
-                "val/f1": f1,
-                "val/auc": val_auc,
-                "val/acc": val_accuracy
-            })
-        precision, recall, f1, auc, accuracy = test_baseline(args,basedmodel,ppo,classifymodel,FusionHisF,memory_space,test_loader, "test", epoch)
-        if wandb:
-            wandb.log({
-                "test/precision": precision,
-                "test/recall": recall,
-                "test/f1": f1,
-                "test/auc": auc,
-                "test/acc": accuracy
-            })
-        if val_auc >= best_auc:
-            best_auc = val_auc
+        precision, recall, f1, val_auc_top, val_accuracy = test_baseline(args,chief_model,classifymodel_top,FusionHisF,memory_space,validation_loader, "val", chose="top")
+        wandb.log({
+            "val/precision": precision,
+            "val/recall": recall,
+            "val/f1": f1,
+            "val/auc": val_auc_top,
+            "val/acc": val_accuracy
+        })
+        precision, recall, f1, val_auc_bottom, accuracy = test_baseline(args,chief_model,classifymodel_top,FusionHisF,memory_space,test_loader, "test", chose="top")
+        wandb.log({
+            "test/precision": precision,
+            "test/recall": recall,
+            "test/f1": f1,
+            "test/auc": val_auc_bottom,
+            "test/acc": val_accuracy
+        })
+
+
+        if val_auc_top >= best_auc_top:
+            best_auc_top = val_auc_top
             # save model
             print(f'Save model at epoch {epoch}.')
-            print(f'val auc: {val_auc}')
-            torch.save(classifymodel.state_dict(), os.path.join(save_dir, "classifymodel.pth"))
+            print(f'val auc: {val_auc_top}')
+            torch.save(classifymodel_top.state_dict(), os.path.join(save_dir, "classifymodel.pth"))
             none_epoch = 0
-        elif none_epoch >= args.patience and epoch >= 40:
-            print(f"Break at epoch {epoch}.")
+        elif none_epoch >= 20:
+            print(f'Break at epoch {epoch}.')
             break
+            
+            
+        # if val_auc_bottom >= best_auc_bottom:
+        #     best_auc_bottom = val_auc_bottom
+        #     # save model
+        #     print(f'Save model at epoch {epoch}.')
+        #     print(f'val auc: {val_auc_bottom}')
+        #     torch.save(classifymodel_bottom.state_dict(), os.path.join(save_dir, "classifymodel_bottom.pth"))
+        #     none_epoch = 0
 
         none_epoch += 1
 
@@ -702,7 +1261,7 @@ def interpolate_probs(probs, new_length,action_size):
     x_new = np.linspace(0, 1, new_length)
     new_probs = np.interp(x_new, x, probs.view(-1).cpu().numpy())
     interpolate_action_probs = new_probs / new_probs.sum()   
-    index = np.random.choice(np.arange(new_length), size=action_size, p=interpolate_action_probs)
+    index = np.random.choice(np.arange(new_length), size=action_size, p=interpolate_action_probs, replace=False)
     return index
 
 
@@ -748,27 +1307,19 @@ class grouping:
             return action.detach(), memory
           
     
-    def action_make_subbags(self,ppo,memory, action_index_pro, update_coords,chief_features,gigapath_features,action_size= None,restart= False,delete_begin=False): 
+    def action_make_subbags(self ,memory, action_index_pro, update_coords,features,action_size= None,restart= False,delete_begin=False): 
         
         B, N, C = update_coords.shape
         idx = interpolate_probs(action_index_pro, new_length = N ,action_size = action_size)
         idx_recored = idx
         idx = torch.tensor(idx)
-        chief_features_group = chief_features[:, idx[:], :]
-        gigapath_features_group = gigapath_features[:, idx[:], :]
+        features_group = features[:, idx[:], :]
         action_group = update_coords[:, idx[:], :] 
 
-        if restart and delete_begin:
-            memory.coords_actions.append(action_group)
-            return chief_features_group, gigapath_features_group, update_coords, chief_features, gigapath_features ,memory
-        else:
-            idx = torch.unique(idx)
-            chief_mask = torch.ones(chief_features.size(1), dtype=torch.bool) 
-            chief_mask[idx] = False  
-            updated_chief_features = chief_features[:, chief_mask, :] 
-            gigapath_mask = torch.ones(gigapath_features.size(1), dtype=torch.bool)
-            gigapath_mask[idx] = False
-            updated_gigapath_features = gigapath_features[:, gigapath_mask, :]
-            updated_coords = update_coords[:, chief_mask, :]
-            memory.coords_actions.append(action_group)
-            return idx_recored, chief_features_group, gigapath_features_group, updated_coords, updated_chief_features, updated_gigapath_features ,memory
+        idx = torch.unique(idx)
+        mask = torch.ones(features.size(1), dtype=torch.bool) 
+        mask[idx] = False  
+        updated_features = features[:, mask, :] 
+        updated_coords = update_coords[:, mask, :]
+        memory.coords_actions.append(action_group)
+        return idx_recored, features_group, updated_coords, updated_features , memory

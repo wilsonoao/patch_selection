@@ -58,7 +58,7 @@ def make_parse():
     parser.add_argument('--expert_action_size', type=int, default=2) 
     parser.add_argument('--policy_conv', action='store_true', default=False)
     parser.add_argument('--action_std', type=float, default=0.5)
-    parser.add_argument('--ppo_lr', type=float, default=0.00001)
+    parser.add_argument('--ppo_lr', type=float, default=0.0001)
     parser.add_argument('--ppo_gamma', type=float, default=1)
     parser.add_argument('--K_epochs', type=int, default=3)
     

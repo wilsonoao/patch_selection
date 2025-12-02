@@ -6,11 +6,9 @@ import os
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from PAMIL_hard_state_rewardChange_relative.models.DPSF import PPO,Memory
-from PAMIL_hard_state_rewardChange_relative.models.MoE_agent import MoE_agent
-from PAMIL_hard_state_rewardChange_relative.utilmodule.utils import make_parse
+from NoisetwoModel_group_rewardCalibration_MCDCP.models.DPSF import PPO,Memory
+from NoisetwoModel_group_rewardCalibration_MCDCP.utilmodule.utils import make_parse
 import torch
-
 
 
 def create_model(args):
@@ -25,13 +23,9 @@ def create_model(args):
                         K_epochs=args.K_epochs,
                         action_size=args.action_size
                         )
-    MoE = MoE_agent(args.feature_dim,args.expert_state_dim, args.policy_hidden_dim, args.policy_conv,
-                        device=device,
-                        action_size=args.expert_action_size)
-
     memory = Memory()
     
-    return None,ppo,None,memory ,None, MoE
+    return ppo, memory
 
 if __name__ == "__mian__":
     
