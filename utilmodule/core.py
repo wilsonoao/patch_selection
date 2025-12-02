@@ -519,9 +519,6 @@ def mcd_forward(model, x, T=25, dropout_rate=0.1):
     return mean, std
 
 
-# ----------------------------------------------------------
-# ⭐ 專門用來算 CP quantile（只在 VAL 用）
-# ----------------------------------------------------------
 @torch.no_grad()
 def compute_cp_Q(
     model,
