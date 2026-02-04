@@ -1,0 +1,37 @@
+# ======================
+# basic
+# ======================
+seed: 42
+num_epochs: 300
+patience: 10
+
+# ======================
+# optimizer
+# ======================
+lr: 0.00005
+group_lr: 0.00005
+
+# ======================
+# model
+# ======================
+n_classes: 2
+in_channel: 768
+hidden_dim: 256
+
+# ======================
+# dirichlet / constraint
+# ======================
+theta_min: 2.0 # start
+theta_max: 1.0 # end
+k: 8.0
+dirichlet_weight: 0.001
+
+# ======================
+# logging
+# ======================
+log_name: "" # wandb +run_name
+use_wandb: true
+eval_static: true # Run p-value
+train: true # train groupConstraint
+
+

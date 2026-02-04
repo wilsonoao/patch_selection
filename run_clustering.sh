@@ -25,17 +25,14 @@ for mutation_pickle_file in "${MUTATION_PICKLE_DIR}"/*; do
         csv_dir="${save_dir}/data"
         cluster="${save_dir}/data/cluster.pkl"
 
-        python main.py \
+        python make_cluster.py \
             --csv_dir "${csv_dir}" \
             --feature_dir "${PT_FILES_PATH}" \
             --h5_dir "${H5_FILES_PATH}" \
             --clinical_pkl_path "${mutation_pickle_file}" \
             --cluster_pkl_path "$cluster" \
             --save_dir "$save_dir" \
-            --test_dir "$save_dir/groupConstraint" \
-            --baseline_dir "$save_dir/baseline" \
             --config "/work/GroupConstraintMIL/config.yaml"
-
     fi
 
 done

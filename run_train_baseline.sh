@@ -1,42 +1,37 @@
 #!/bin/bash
 
-BASE_DIR="/work/data/4_fold/LUAD"
-SAVE_BASE_DIR="/work/SingleAgent_noiseLearning_twoModel/chief_baseline_LUAD_KMEANs40"
+FEATURE_BASE_DIR="/work/data"
+SAVE_BASE_DIR="/work/result"
+MUTATION_PICKLE_DIR="/work/data_pickle/mutataion_pickle/LUAD"
 
-for mutation_path in "$BASE_DIR"/TP53; do
-    if [ -d "$mutation_path" ]; then
-        mutation_name=$(basename "$mutation_path")  # e.g., CSMD3, MUC16
+FOUNDATION_MODEL="CHIEF" # CHIEF, GIGAPATH, UNI, VIRCHOW2, CHIEF_WSI, GIGAPATH_WSI
+DATA_SOURCE="TCGA"
+SLIDE_TYPE="FS"
+MAGNIFICATION="20X"
+PT_FOLD_NAME="pt_files(stain_norm)"
+H5_FOLD_NAME="h5_files(stain_norm)"
 
-        # if [ "$mutation_name" = "CSMD3" ]; then
-        #         echo "Skipping $mutation_name"
-        #         continue
-        #     fi
+CANCER="LUAD"
 
-        for csv in "$mutation_path"/dataset_fold_*.csv; do
-            fold_name=$(basename "$csv" .csv)  # e.g., dataset_fold_0
-            save_dir="$SAVE_BASE_DIR/$mutation_name"
+PT_FILES_PATH="${FEATURE_BASE_DIR}/${DATA_SOURCE}-${CANCER}-${SLIDE_TYPE}/${FOUNDATION_MODEL}/${MAGNIFICATION}/${PT_FOLD_NAME}"
+H5_FILES_PATH="${FEATURE_BASE_DIR}/${DATA_SOURCE}-${CANCER}-${SLIDE_TYPE}/${FOUNDATION_MODEL}/${MAGNIFICATION}/${H5_FOLD_NAME}"
 
-            # if [ "$fold_name" = "dataset_fold_0" ]; then
-            #     echo "Skipping $mutation_name"
-            #     continue
-            # fi
+for mutation_pickle_file in "${MUTATION_PICKLE_DIR}"/*; do
 
-            # if [ "$fold_name" = "dataset_fold_1" ]; then
-            #     echo "Skipping $mutation_name"
-            #     continue
-            # fi
+    if [ -f "$mutation_pickle_file" ]; then
+        mutation_name=$(basename "$mutation_pickle_file" .pkl)  # e.g., CSMD3, MUC16
 
-            # echo "▶️ 執行: $csv"
-            # echo "📁 儲存到: $save_dir"
+        save_dir="$SAVE_BASE_DIR/${DATA_SOURCE}_${CANCER}_${SLIDE_TYPE}/${FOUNDATION_MODEL}/${MAGNIFICATION}/${mutation_name}"
+        csv_dir="${save_dir}/data"
 
-            python train_baseline.py \
-                --csv "$csv" \
-                --save_dir "$save_dir" \
-                --action_size 60 \
-                --seed 42 \
-                --num_epoch 100 
-                # --chief_feature_dir "/work/data/TCGA-LUAD-FS/UNI/20X/pt_files(stain_norm)"
-                
-        done
+        python main_baseline.py \
+            --csv_dir "${csv_dir}" \
+            --feature_dir "${PT_FILES_PATH}" \
+            --h5_dir "${H5_FILES_PATH}" \
+            --clinical_pkl_path "${mutation_pickle_file}" \
+            --save_dir "$save_dir" \
+            --config "/work/GroupConstraintMIL/config.yaml"
+
     fi
+
 done

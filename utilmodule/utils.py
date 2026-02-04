@@ -16,64 +16,49 @@ import numpy as np
 from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score,accuracy_score, confusion_matrix
 import heapq
 import statistics
+import matplotlib.pyplot as plt
 
 
 def make_parse():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--type', default='tcga',type=str)  
-    parser.add_argument('--mode', default='rlselect',type=str)
     parser.add_argument('--seed', default=42,type=int)
     parser.add_argument('--num_epochs', default=300,type=int)
-    parser.add_argument('--lr', default=0.00001,type=int)
-    parser.add_argument('--Exploration_beta', default=0.05,type=float)
-
-    
-    parser.add_argument('--in_chans', default=1024,type=int)
-  
-    parser.add_argument('--embed_dim', default=768,type=int)
-    parser.add_argument('--attn', default='normal',type=str)
-    parser.add_argument('--gm', default='cluster',type=str)
-    parser.add_argument('--cls', default=True,type=bool)
-    parser.add_argument('--num_msg', default=1,type=int)
-    parser.add_argument('--ape', default=True,type=bool)
+    parser.add_argument('--lr', default=0.00005,type=float)
+    parser.add_argument('--group_lr', default=0.00005,type=float)
     parser.add_argument('--n_classes', default=2,type=int)
-    parser.add_argument('--num_layers', default=2,type=int) 
+    parser.add_argument('--in_channel', default=768,type=int)
+    parser.add_argument('--hidden_dim', default=256,type=int)
 
-    parser.add_argument('--instaceclass', default=True,type=bool,help='') 
-    parser.add_argument('--CE_CL', default=True,type=bool,help='')
-    parser.add_argument('--ape_class', default=False,type=bool,help='') 
+    parser.add_argument('--theta_min', default=2,type=float)
+    parser.add_argument('--theta_max', default=1,type=float)
+    parser.add_argument('--k', default=4,type=float)
+    parser.add_argument('--dirichlet_weight', default=8,type=float)
+    parser.add_argument('--log_name', default="",type=str)
 
 
-    parser.add_argument('--test_h5', default='/work/data/TCGA-LUAD-FS/CHIEF/20X/h5_files(stain_norm)',type=str)
-    parser.add_argument('--train_h5',default='/work/data/TCGA-LUAD-FS/CHIEF/20X/h5_files(stain_norm)',type=str)
-    parser.add_argument('--csv', default='/work/data/4_fold/LUAD/CSMD3/dataset_fold_0.csv',type=str)
-    parser.add_argument('--chief_feature_dir', default='/work/data/TCGA-LUAD-FS/CHIEF/20X/pt_files(stain_norm)',type=str)
-    parser.add_argument('--gigapath_feature_dir', default='/work/data/TCGA-LUAD-FS/GIGAPATH/20X/pt_files(stain_norm)',type=str)
- 
-    parser.add_argument('--policy_hidden_dim', type=int, default=1024)
-    parser.add_argument('--feature_dim', type=int, default=768)
-    parser.add_argument('--state_dim', type=int, default=768)
-    parser.add_argument('--action_size', type=int, default=60) 
-    parser.add_argument('--expert_state_dim', type=int, default=1537)
-    parser.add_argument('--expert_action_size', type=int, default=2) 
-    parser.add_argument('--policy_conv', action='store_true', default=False)
-    parser.add_argument('--action_std', type=float, default=0.5)
-    parser.add_argument('--ppo_lr', type=float, default=0.0001)
-    parser.add_argument('--ppo_gamma', type=float, default=1)
-    parser.add_argument('--K_epochs', type=int, default=3)
-    
-    parser.add_argument('--test_total_T', type=int, default=3)
-    parser.add_argument('--train_total_T', type=int, default=3)
-
-    parser.add_argument('--reward_rule', type=str, default="cl",help=' ')
+    parser.add_argument('--h5_dir',default='/workspace/data/TCGA-LUAD-FS/CHIEF/20X/h5_files(stain_norm)',type=str)
+    parser.add_argument('--csv_dir', default='/workspace/data/4_fold/LUAD/CSMD3/dataset_fold_0.csv',type=str)
+    parser.add_argument('--feature_dir', default='/workspace/data/TCGA-LUAD-FS/CHIEF/20X/pt_files(stain_norm)',type=str)
+    parser.add_argument('--clinical_pkl_path', default='/workspace/data/mutataion_pickle/LUAD/CSMD3.pkl',type=str)
+    parser.add_argument('--cluster_pkl_path', default='/workspace/data/TCGA-LUAD-FS/CHIEF/20X/pt_files(stain_norm)/cluster_record_spatialleiden.pkl',type=str)
     parser.add_argument('--save_dir', type=str, default="/work/PAMIL_two_round/test",help='')
     parser.add_argument('--csv_saveName', type=str, default="probability.csv",help='')
+    parser.add_argument('--test_dir', default="",help='')
+    parser.add_argument('--baseline_dir', default="",help='')
+    
     parser.add_argument('--patience', type=int, default=20, help = '')
 
-    parser.add_argument('--test_dir', default="/work/PAMIL_two_round/result_ensemble/CSMD3/dataset_fold_0",help='')
 
+    parser.add_argument('--train', default=None)
+    parser.add_argument('--use_wandb', default=None)
+    parser.add_argument('--eval_static', default=None)
     
-    
+    parser.add_argument(
+        "--config",
+        type=str,
+        required=True,
+        help="Path to yaml config file",
+    )
     args = parser.parse_args()
     return args
 
@@ -138,3 +123,114 @@ def cat_msg2cluster_group(x_groups,msg_tokens):
         x_groups_cated.append(temp)
 
     return x_groups_cated
+
+
+
+def plot_group_attn_magnitude_distribution(
+    attn_list,
+    bins=None,
+    save_path="group_attn_magnitude.png",
+    title="Group Attention Magnitude Distribution",
+):
+    """
+    attn_list: list[Tensor] or Tensor (B, N)
+    """
+
+    if bins is None:
+        bins = [
+            (1.0, 1e-1),
+            (1e-1, 1e-2),
+            (1e-2, 1e-3),
+            (1e-3, 1e-4),
+            (1e-4, 0.0),
+        ]
+
+    # ---- collect all attention ----
+    if isinstance(attn_list, torch.Tensor):
+        x = attn_list.detach().flatten().abs()
+    else:
+        x = torch.cat([a.detach().flatten().abs() for a in attn_list], dim=0)
+
+    labels, counts = [], []
+
+    for high, low in bins:
+        mask = (x <= high) & (x > low)
+        counts.append(mask.sum().item())
+        labels.append(f"{high:g} ~ {low:g}")
+
+    # ---- plot ----
+    plt.figure(figsize=(8, 4))
+    bars = plt.bar(labels, counts)
+
+    plt.xlabel("Value Range")
+    plt.ylabel("Count")
+    plt.title(title)
+    plt.xticks(rotation=45)
+
+    # ---- annotate value on each bar ----
+    for bar, count in zip(bars, counts):
+        height = bar.get_height()
+        plt.text(
+            bar.get_x() + bar.get_width() / 2.0,
+            height,
+            str(count),
+            ha="center",
+            va="bottom",
+            fontsize=9,
+        )
+
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
+
+
+def attention_entropy_norm(A, eps=1e-12):
+    """
+    A: attention tensor, shape [1, N] or [N]
+    return: scalar H_norm
+    """
+    if A.dim() == 2:
+        A = A.squeeze(0)   # [N]
+
+    A = A.clamp(min=eps)
+    N = A.numel()
+
+    entropy = -torch.sum(A * torch.log(A))
+    H_norm = entropy / torch.log(torch.tensor(N, device=A.device, dtype=A.dtype))
+
+    return H_norm
+
+
+
+def attention_entropy(A, eps=1e-12):
+    """
+    A: attention tensor, shape [1, N] or [N]
+    return: scalar H_norm
+    """
+    if A.dim() == 2:
+        A = A.squeeze(0)   # [N]
+
+    A = A.clamp(min=eps)
+    N = A.numel()
+
+    entropy = -torch.sum(A * torch.log(A))
+    
+
+    return entropy
+
+
+def chief_wsi_embedding(chief_model, feature, type="model"):
+
+    if type == "model":
+        anatomical=13
+        with torch.no_grad():
+            x,tmp_z = feature,anatomical
+            result = chief_model(x, torch.tensor([tmp_z]))
+            wsi_feature_emb = result['WSI_feature']  ###[1,768]
+            # print(wsi_feature_emb.size())
+    elif type == "mean-pooling":
+        wsi_feature_emb = feature.mean(dim=0, keepdim=True)
+    elif type == "max-pooling":
+        wsi_feature_emb, _ = feature.max(dim=0, keepdim=True)
+
+    return wsi_feature_emb

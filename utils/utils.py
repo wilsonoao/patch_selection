@@ -5,13 +5,21 @@ import torch.nn as nn
 import numpy as np
 import torch
 from addict import Dict
+from pathlib import Path
 
 
+def load_yaml_config(config_path: str) -> Dict:
+    """
+    Load yaml config and return as Dict (attribute-style access).
+    """
+    config_path = Path(config_path)
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config file not found: {config_path}")
 
-def read_yaml(fpath="./configs/sample.yaml"):
-    with open(fpath, mode="r") as file:
-        yml = yaml.load(file, Loader=yaml.Loader)
-        return Dict(yml)
+    with open(config_path, "r") as f:
+        cfg = yaml.safe_load(f) or {}
+
+    return Dict(cfg)
 
 
 
