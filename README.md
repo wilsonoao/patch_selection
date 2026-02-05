@@ -239,9 +239,12 @@ It is recommended that both values are ≥ 1, and that `theta_start` > `theta_en
 Controls the slope of the sigmoid function about theta_function.
 **Formula**
 \[
-\theta = \theta_{\text{start}} 
+\theta = \theta_{\text{start}}
 + (\theta_{\text{end}} - \theta_{\text{start}})
-\cdot \sigma\big( k \cdot (\text{group\_attention} - \overline{\text{group\_attention}}) \big)
+\cdot \sigma\big(
+k \cdot (\text{group\_attention}
+- \overline{\text{group\_attention}})
+\big)
 \]
 ### `--dirichlet_weight`
 Controls the strength of the Dirichlet regularization.
