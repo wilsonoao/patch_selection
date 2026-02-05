@@ -51,12 +51,12 @@ TCGA-LUAD-FS/
         │   ├── TCGA-XX-XXXX-01A-01-TS2.h5
         │   └── ...
         │
-        ├── pt_files(stain_norm)/
-        │   ├── TCGA-XX-XXXX-01A-01-TS1.pt
-        │   ├── TCGA-XX-XXXX-01A-01-TS2.pt
-        │   └── ...
-        │
-        └── cluster_record_spatialleiden.pkl
+        └── pt_files(stain_norm)/
+            ├── TCGA-XX-XXXX-01A-01-TS1.pt
+            ├── TCGA-XX-XXXX-01A-01-TS2.pt
+            └── ...
+        
+
 ```
 
 ---
