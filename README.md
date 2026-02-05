@@ -10,6 +10,20 @@ Directory containing CSV files for dataset splits of the target mutation task.
 - If this directory is empty, 4-fold CSV files will be automatically generated.
 The generation requires `clinical_pkl_path` (mutation labels), and the resulting
 CSV files will be saved under this directory.
+- When running `train.py`, please provide the **parent directory** of the `data` folder,
+  not the `data` folder itself
+
+**Save structure: (after saving)**
+
+```
+save-dir/
+    └── data
+        ├── dataset_fold_0.csv
+        ├── dataset_fold_1.csv
+        ├── dataset_fold_2.csv
+        └── dataset_fold_3.csv
+```
+
 
 ---
 
@@ -68,7 +82,16 @@ Directory to the clustering result pickle file.
 - The same `cluster.pkl` can be shared across different mutation tasks
   as long as the tumor type and the underlying feature extraction backbone
   remain the same
+- When running `train.py`, please provide the **parent directory** of the `data` folder,
+  not the `data` folder itself
 
+**Save structure: (after saving)**
+
+```
+cluster_pkl_dir/
+    └── data
+        └── cluster.pkl
+```
 ---
 
 ### `--save_dir`
