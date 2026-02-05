@@ -236,7 +236,8 @@ Patch level lr
 The theta value is constrained to lie within this range.
 It is recommended that both values are ≥ 1, and that `theta_start` > `theta_end`.
 ### `--k`
-Controls the slope of the sigmoid function about theta_function.
+Controls the slope of the sigmoid function used in the theta computation.
+
 **Formula**
 \[
 \theta = \theta_{\text{start}}
@@ -246,6 +247,7 @@ k \cdot (\text{group\_attention}
 - \overline{\text{group\_attention}})
 \big)
 \]
+
 ### `--dirichlet_weight`
 Controls the strength of the Dirichlet regularization.
 
