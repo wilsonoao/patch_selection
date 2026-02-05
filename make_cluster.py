@@ -19,10 +19,10 @@ def main(args):
 
     seed_torch(args.seed)
 
-    csv_file_dir = Path(args.csv_dir)
+    csv_file_dir = Path(os.path.join(args.csv_dir), "data") if args.csv_dir is not None and args.csv_dir != "" else Path(os.path.join(args.save_dir, "data"))
     feature_dir = Path(args.feature_dir)
     h5file_dir = Path(args.h5_dir)
-    cluster_pkl_path = Path(args.cluster_pkl_path) if args.cluster_pkl_path is not None and args.cluster_pkl_path != "" else Path(os.path.join(args.save_dir, "data", "cluster.pkl"))
+    cluster_pkl_path = Path(os.path.join(args.cluster_pkl_dir, "data", "cluster.pkl")) if args.cluster_pkl_dir is not None and args.cluster_pkl_path != "" else Path(os.path.join(args.save_dir, "data", "cluster.pkl"))
 
     csv_file_path = Path(os.path.join(csv_file_dir, "dataset_fold_0.csv"))
     if not csv_file_path.exists():
@@ -34,6 +34,7 @@ def main(args):
         )
     else:
         print("exist !!!")
+
 
     # patch dataloader
     train_dataset = h5file_Dataset(csv_file_path,h5file_dir,feature_dir,'train')

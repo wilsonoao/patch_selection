@@ -25,7 +25,7 @@ def main(args):
     save_dir = Path(args.save_dir) if args.save_dir != "" else None
     seed_torch(args.seed)
 
-    csv_file_dir = Path(args.csv_dir)
+    csv_file_dir = Path(os.path.join(args.csv_dir), "data") if args.csv_dir is not None and args.csv_dir != "" else Path(os.path.join(args.save_dir, "data"))
     feature_dir = Path(args.feature_dir)
     h5file_dir = Path(args.h5_dir)
 
@@ -60,10 +60,22 @@ def main(args):
         classifier = MLP(in_channel=args.in_channel)
         if args.use_wandb: 
             wandb.login(key=wandb_token)
+            project_name = Path(feature_dir).resolve()
+            parents = project_name.parents
+            def safe_parent_name(parents, idx, fallback="NA"):
+                return parents[idx].name if len(parents) > idx else fallback
+
+            project = (
+                safe_parent_name(parents, 2)
+                + "_"
+                + safe_parent_name(parents, 1)
+                + "_baseline_"
+                + save_dir.name
+            )
             wandb.init(
-                project=save_dir.parents[2].name+"_"+save_dir.parents[1].name+"_baseline_"+save_dir.name,            
-                name=f"dataset_fold_{fold_id}"+ "_" + Runtime + args.log_name,     
-                config=vars(args)                    
+                project=project,
+                name=f"dataset_fold_{fold_id}_{Runtime}{args.log_name}",
+                config=dict(args),
             )
         else:
             print("No wandb")

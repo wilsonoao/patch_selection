@@ -27,6 +27,7 @@ from models.CHIEF import CHIEF
 from models.CHIEF_network import ClfNet
 from sklearn.metrics import roc_auc_score
 from torch.utils.data import DataLoader
+from pathlib import Path
 
 def chief_wsi_embedding(chief_model, feature, type="model"):
 
@@ -415,7 +416,8 @@ def cluster_chief_data(train_loader, device="cpu", method="kmeans"):
 
 def clustering(save_path, train_loader, validation_loader, test_loader=None):
     
-
+    save_path = Path(save_path)
+    save_path.parent.mkdir(parents=True, exist_ok=True)
     print(save_path)
 
     cluster_list = cluster_chief_data(train_loader, device="cpu", method="spatialleiden")

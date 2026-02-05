@@ -29,24 +29,24 @@ def make_parse():
     parser.add_argument('--in_channel', default=768,type=int)
     parser.add_argument('--hidden_dim', default=256,type=int)
 
-    parser.add_argument('--theta_min', default=2,type=float)
-    parser.add_argument('--theta_max', default=1,type=float)
+    parser.add_argument('--theta_start', default=2,type=float)
+    parser.add_argument('--theta_end', default=1,type=float)
     parser.add_argument('--k', default=4,type=float)
     parser.add_argument('--dirichlet_weight', default=8,type=float)
     parser.add_argument('--log_name', default="",type=str)
 
 
-    parser.add_argument('--h5_dir',default='/workspace/data/TCGA-LUAD-FS/CHIEF/20X/h5_files(stain_norm)',type=str)
-    parser.add_argument('--csv_dir', default='/workspace/data/4_fold/LUAD/CSMD3/dataset_fold_0.csv',type=str)
-    parser.add_argument('--feature_dir', default='/workspace/data/TCGA-LUAD-FS/CHIEF/20X/pt_files(stain_norm)',type=str)
-    parser.add_argument('--clinical_pkl_path', default='/workspace/data/mutataion_pickle/LUAD/CSMD3.pkl',type=str)
-    parser.add_argument('--cluster_pkl_path', default='/workspace/data/TCGA-LUAD-FS/CHIEF/20X/pt_files(stain_norm)/cluster_record_spatialleiden.pkl',type=str)
-    parser.add_argument('--save_dir', type=str, default="/work/PAMIL_two_round/test",help='')
-    parser.add_argument('--csv_saveName', type=str, default="probability.csv",help='')
-    parser.add_argument('--test_dir', default="",help='')
-    parser.add_argument('--baseline_dir', default="",help='')
+    parser.add_argument('--h5_dir',default=None,type=str)
+    parser.add_argument('--csv_dir', default=None,type=str)
+    parser.add_argument('--feature_dir', default=None,type=str)
+    parser.add_argument('--clinical_pkl_path', default=None,type=str)
+    parser.add_argument('--cluster_pkl_dir', default=None,type=str)
+    parser.add_argument('--save_dir', type=str, default=None,help='')
+    parser.add_argument('--csv_saveName', type=str, default=None,help='')
+    parser.add_argument('--test_dir', default=None,help='',type=str)
+    parser.add_argument('--baseline_dir', default=None,help='',type=str)
     
-    parser.add_argument('--patience', type=int, default=20, help = '')
+    parser.add_argument('--patience', type=int, default=10, help = '')
 
 
     parser.add_argument('--train', default=None)

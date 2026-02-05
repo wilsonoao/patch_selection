@@ -223,8 +223,8 @@ def train(args, save_dir, abmil, group_abmil, train_loader, validation_loader, G
         use_dirichlet=True,
         dirichlet_weight=args.dirichlet_weight,
         dirichlet_kwargs={
-            "theta_min": args.theta_min,
-            "theta_max": args.theta_max,
+            "theta_min": args.theta_start,
+            "theta_max": args.theta_end,
             "k": args.k,
         })
     group_loss_fn = MILLoss(criterion=torch.nn.CrossEntropyLoss())

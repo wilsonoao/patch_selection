@@ -22,19 +22,19 @@ for mutation_pickle_file in "${MUTATION_PICKLE_DIR}"/*; do
         mutation_name=$(basename "$mutation_pickle_file" .pkl)  # e.g., CSMD3, MUC16
 
         save_dir="$SAVE_BASE_DIR/${DATA_SOURCE}_${CANCER}_${SLIDE_TYPE}/${FOUNDATION_MODEL}/${MAGNIFICATION}/${mutation_name}"
-        csv_dir="${save_dir}/data"
-        cluster="${save_dir}/data/cluster.pkl"
+        csv_dir="${save_dir}"
+        cluster="${save_dir}"
 
         python main.py \
+            --config "/work/GroupConstraintMIL/config.yaml" \
             --csv_dir "${csv_dir}" \
             --feature_dir "${PT_FILES_PATH}" \
             --h5_dir "${H5_FILES_PATH}" \
             --clinical_pkl_path "${mutation_pickle_file}" \
-            --cluster_pkl_path "$cluster" \
+            --cluster_pkl_dir "$cluster" \
             --save_dir "$save_dir" \
-            --test_dir "$save_dir/groupConstraint" \
-            --baseline_dir "$save_dir/baseline" \
-            --config "/work/GroupConstraintMIL/config.yaml"
+            --test_dir "$save_dir" \
+            --baseline_dir "$save_dir" \
 
     fi
 

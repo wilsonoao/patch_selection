@@ -23,14 +23,14 @@ for mutation_pickle_file in "${MUTATION_PICKLE_DIR}"/*; do
 
         save_dir="$SAVE_BASE_DIR/${DATA_SOURCE}_${CANCER}_${SLIDE_TYPE}/${FOUNDATION_MODEL}/${MAGNIFICATION}/${mutation_name}"
         csv_dir="${save_dir}/data"
-        cluster="${save_dir}/data/cluster.pkl"
+        cluster="${save_dir}"
 
         python make_cluster.py \
             --csv_dir "${csv_dir}" \
             --feature_dir "${PT_FILES_PATH}" \
             --h5_dir "${H5_FILES_PATH}" \
             --clinical_pkl_path "${mutation_pickle_file}" \
-            --cluster_pkl_path "$cluster" \
+            --cluster_pkl_dir "$cluster" \
             --save_dir "$save_dir" \
             --config "/work/GroupConstraintMIL/config.yaml"
     fi

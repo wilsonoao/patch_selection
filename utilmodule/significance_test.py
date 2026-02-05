@@ -70,6 +70,13 @@ def significance_test(
         y_true_all.append(y_true)
         y_pred_new_all.append(y_new)
         y_pred_base_all.append(y_base)
+    
+    mean_auc_new = float(np.mean(fold_auc_new))
+    mean_auc_base = float(np.mean(fold_auc_base))
+
+    fold_auc_new.append(mean_auc_new)
+    fold_auc_base.append(mean_auc_base)
+    
 
     # ===== Concatenated evaluation =====
     y_true_cat = np.concatenate(y_true_all)
@@ -89,12 +96,14 @@ def significance_test(
         for method in methods
     }
 
+    fold_pvalues.append(-1)
+
     # ===== Save CSVs =====
     os.makedirs(out_dir, exist_ok=True)
 
     # (1) fold-level CSV
     fold_df = pd.DataFrame({
-        "fold": list(range(n_folds)),
+        "fold": list(range(n_folds)) + ["average"],
         "auc_new": fold_auc_new,
         "auc_baseline": fold_auc_base,
         "p_delong": fold_pvalues

@@ -1,8 +1,12 @@
+
+
+# The parameters in the YAML file will override the script parameters. 
+
 # ======================
 # basic
 # ======================
 seed: 42
-num_epochs: 300
+num_epochs: 100
 patience: 10
 
 # ======================
@@ -21,9 +25,9 @@ hidden_dim: 256
 # ======================
 # dirichlet / constraint
 # ======================
-theta_min: 2.0 # start
-theta_max: 1.0 # end
-k: 8.0
+theta_start: 2.0 # start
+theta_end: 1.0 # end
+k: 4.0
 dirichlet_weight: 0.001
 
 # ======================
@@ -33,5 +37,18 @@ log_name: "" # wandb +run_name
 use_wandb: true
 eval_static: true # Run p-value
 train: true # train groupConstraint
+
+
+# ======================
+# Path 
+# ======================
+# h5_dir: "/work/data/TCGA-LUAD-FS/CHIEF/20X/h5_files(stain_norm)"
+# csv_dir: "/work/result_r/CSMD3"
+# feature_dir: "/work/data/TCGA-LUAD-FS/CHIEF/20X/pt_files(stain_norm)"
+# clinical_pkl_path: "/work/data_pickle/mutataion_pickle/LUAD/CSMD3.pkl"
+# cluster_pkl_dir: "/work/result_r/CSMD3"
+# save_dir: "/work/result_r/CSMD3"
+# test_dir: "" # if train=false you should pass this parameter.
+# baseline_dir: "/work/result_r/CSMD3"
 
 
