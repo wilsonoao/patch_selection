@@ -183,6 +183,7 @@ def train_loop(model, optimizer, loss_fn, loader, group_model=None, cluster_reco
         loss_record["attn_Hnorm"] += attention_entropy_norm(output["A"]).item()
         loss_record["attn_H"] += attention_entropy(output["A"]).item()
         # loss["loss"] -= 1e-4 * attention_entropy(output["A"])
+        optimizer.zero_grad()
         loss["loss"].backward()
         optimizer.step()
         probs = F.softmax(output["logits"] , dim=1)
