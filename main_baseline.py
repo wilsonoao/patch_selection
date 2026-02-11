@@ -14,7 +14,7 @@ import wandb
 from models.Classifier import MLP
 from pathlib import Path
 from datetime import datetime
-
+from dotenv import load_dotenv
     
         
 def main(args):
