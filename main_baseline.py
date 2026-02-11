@@ -21,7 +21,12 @@ def main(args):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    wandb_token = "6c2e984aee5341ab06b1d26cefdb654ffea09bc7"
+    load_dotenv()
+    wandb_token = os.getenv("WANDB_API_KEY")
+
+    if wandb_token is None:
+        raise ValueError("WANDB_API_KEY not found in .env")
+        
     save_dir = Path(args.save_dir) if args.save_dir != "" else None
     seed_torch(args.seed)
 

@@ -13,6 +13,7 @@ from dataset.dataset_split import build_fold_csv
 import torch
 import torch.nn as nn
 import wandb
+from dotenv import load_dotenv
 from models.ABMIL import ABMILPooling
 from models.Classifier import MLP
 import pickle
@@ -40,7 +41,12 @@ def Setup_group_loader(cluster_record, loader, batch_size=1, shuffle=True):
         
 def main(args):
 
-    wandb_token = "6c2e984aee5341ab06b1d26cefdb654ffea09bc7"
+    load_dotenv()
+    wandb_token = os.getenv("WANDB_API_KEY")
+
+    if wandb_token is None:
+        raise ValueError("WANDB_API_KEY not found in .env")
+
     save_dir = Path(args.save_dir) if args.save_dir != "" else None
     seed_torch(args.seed)
 
